@@ -27,7 +27,8 @@ class EduquestUserSerializer(serializers.ModelSerializer):
     class Meta:
         model = EduquestUser
         fields = ['id', 'first_name', 'last_name', 'username', 'email', 'nickname', 'last_login',
-                  'updated_at', 'is_superuser', 'is_active', 'is_staff', 'total_points']
+                  'updated_at', 'is_superuser', 'is_active', 'is_staff', 'total_points',
+                  'daily_checkin_streak', 'daily_checkin_longest_streak', 'daily_checkin_last_date']
         read_only_fields = ['first_name', 'last_name', 'is_superuser', 'updated_at', 'username']
 
     # def create(self, validated_data):
@@ -237,11 +238,11 @@ class UserCourseGroupEnrollmentSerializer(serializers.ModelSerializer):
         # write_only=True
     )
     course_group = CourseGroupSerializer(read_only=True)
-    # student = EduquestUserSummarySerializer(read_only=True)
+    student = EduquestUserSummarySerializer(read_only=True)
 
     class Meta:
         model = UserCourseGroupEnrollment
-        fields = ['id', 'course_group_id', 'course_group', 'student_id', 'enrolled_on', 'completed_on']
+        fields = ['id', 'course_group_id', 'course_group', 'student_id', 'student', 'enrolled_on', 'completed_on']
 
     def validate(self, attrs):
         student = attrs.get('student')

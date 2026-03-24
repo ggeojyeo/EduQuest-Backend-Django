@@ -2,6 +2,7 @@ import uuid
 from collections import defaultdict
 import os
 import requests
+from io import BytesIO
 from django.views.decorators.csrf import csrf_exempt
 from django.db import transaction
 from rest_framework import viewsets
@@ -11,6 +12,7 @@ from rest_framework.permissions import IsAuthenticated, IsAdminUser, SAFE_METHOD
 from django.contrib.auth import get_user_model
 from rest_framework.views import APIView
 from datetime import timedelta
+from zoneinfo import ZoneInfo
 from django.db.models import Count, Q, Max, Avg, Prefetch
 from .excel import Excel
 from rest_framework import status
@@ -34,7 +36,8 @@ from .models import (
     UserQuestBadge,
     UserCourseBadge,
     Document,
-    StudentFeedback
+    StudentFeedback,
+    StudentAttendanceOverride
 )
 from .serializers import (
     EduquestUserSerializer,
@@ -58,10 +61,39 @@ from .serializers import (
 from rest_framework.decorators import api_view
 from django.utils.decorators import method_decorator
 from rest_framework.response import Response
+from django.http import HttpResponse
+from openpyxl import Workbook
 import logging
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
+
+def _build_effective_attendance_pairs(quest_ids, student_ids=None):
+    if not quest_ids:
+        return set()
+
+    base_query = UserQuestAttempt.objects.filter(quest_id__in=quest_ids)
+    if student_ids is not None:
+        base_query = base_query.filter(student_id__in=student_ids)
+
+    base_pairs = set(base_query.values_list('quest_id', 'student_id').distinct())
+
+    override_query = StudentAttendanceOverride.objects.filter(quest_id__in=quest_ids)
+    if student_ids is not None:
+        override_query = override_query.filter(student_id__in=student_ids)
+
+    for override in override_query.values('quest_id', 'student_id', 'is_present'):
+        key = (override['quest_id'], override['student_id'])
+        if override['is_present']:
+            base_pairs.add(key)
+        else:
+            base_pairs.discard(key)
+
+    return base_pairs
+
+
+def _sg_today():
+    return timezone.now().astimezone(ZoneInfo("Asia/Singapore")).date()
 
 
 # Test view to check the request method and data
@@ -100,6 +132,61 @@ class EduquestUserViewSet(viewsets.ModelViewSet):
         serializer = EduquestUserSerializer(queryset, many=True)
         return Response(serializer.data)
 
+    @action(detail=False, methods=['get'])
+    def by_student(self, request):
+        queryset = EduquestUser.objects.filter(is_staff=False, is_superuser=False).order_by('nickname', 'email')
+        serializer = EduquestUserSerializer(queryset, many=True)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=['post'], url_path='daily-check-in')
+    def daily_check_in(self, request):
+        user = request.user
+        if not isinstance(user, EduquestUser):
+            return Response({"detail": "Invalid user context"}, status=status.HTTP_400_BAD_REQUEST)
+
+        today = _sg_today()
+        if user.daily_checkin_last_date == today:
+            return Response({
+                "checked_in": False,
+                "already_checked_in": True,
+                "daily_points_awarded": 0,
+                "streak_bonus_awarded": 0,
+                "current_streak": user.daily_checkin_streak,
+                "longest_streak": user.daily_checkin_longest_streak,
+                "total_points": float(user.total_points),
+            })
+
+        yesterday = today - timedelta(days=1)
+        if user.daily_checkin_last_date == yesterday:
+            next_streak = user.daily_checkin_streak + 1
+        else:
+            next_streak = 1
+
+        daily_points_awarded = 5
+        streak_bonus_awarded = 20 if next_streak % 7 == 0 else 0
+        points_awarded = daily_points_awarded + streak_bonus_awarded
+
+        with transaction.atomic():
+            user.daily_checkin_last_date = today
+            user.daily_checkin_streak = next_streak
+            user.daily_checkin_longest_streak = max(user.daily_checkin_longest_streak, next_streak)
+            user.total_points += points_awarded
+            user.save(update_fields=[
+                'daily_checkin_last_date',
+                'daily_checkin_streak',
+                'daily_checkin_longest_streak',
+                'total_points',
+            ])
+
+        return Response({
+            "checked_in": True,
+            "already_checked_in": False,
+            "daily_points_awarded": daily_points_awarded,
+            "streak_bonus_awarded": streak_bonus_awarded,
+            "current_streak": user.daily_checkin_streak,
+            "longest_streak": user.daily_checkin_longest_streak,
+            "total_points": float(user.total_points),
+        })
 
 class AcademicYearViewSet(viewsets.ModelViewSet):
     queryset = AcademicYear.objects.all().order_by('-id')
@@ -204,6 +291,21 @@ class UserCourseGroupEnrollmentViewSet(viewsets.ModelViewSet):
         user_id = request.query_params.get('user_id')
         queryset = UserCourseGroupEnrollment.objects.filter(course_group__course=course_id, student=user_id).order_by(
             '-id')
+        serializer = UserCourseGroupEnrollmentSerializer(queryset, many=True)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=['get'])
+    def by_course_group(self, request):
+        course_group_id = request.query_params.get('course_group_id')
+        if not course_group_id:
+            return Response({'detail': 'course_group_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        queryset = (
+            UserCourseGroupEnrollment.objects
+            .filter(course_group=course_group_id)
+            .select_related('student')
+            .order_by('student__nickname', 'student__email')
+        )
         serializer = UserCourseGroupEnrollmentSerializer(queryset, many=True)
         return Response(serializer.data)
 
@@ -426,6 +528,16 @@ class QuestionViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         serializer.save()
 
+    @action(detail=False, methods=['get'])
+    def by_quest(self, request):
+        quest_id = request.query_params.get('quest_id')
+        if not quest_id:
+            return Response({"detail": "quest_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        queryset = Question.objects.filter(quest=quest_id).order_by('number')
+        serializer = QuestionSerializer(queryset, many=True)
+        return Response(serializer.data)
+
 
 class AnswerViewSet(viewsets.ModelViewSet):
     queryset = Answer.objects.all().order_by('-id')
@@ -501,6 +613,25 @@ class UserQuestAttemptViewSet(viewsets.ModelViewSet):
             instance.submitted = True
             instance.save()
         return Response({"message": f"All attempts for quest {quest_id} have been marked as submitted."})
+
+    @action(detail=False, methods=['post'])
+    def regrade_by_quest(self, request):
+        if not (request.user.is_staff or request.user.is_superuser):
+            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+
+        quest_id = request.query_params.get('quest_id')
+        if not quest_id:
+            return Response({"detail": "quest_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        attempts = UserQuestAttempt.objects.filter(quest=quest_id)
+        updated_count = 0
+        for attempt in attempts:
+            total_score = attempt.calculate_total_score_achieved()
+            attempt.total_score_achieved = total_score
+            attempt.save(update_fields=['total_score_achieved'])
+            updated_count += 1
+
+        return Response({"message": f"Regraded {updated_count} attempts for quest {quest_id}."})
 
     @action(detail=True, methods=['post'], url_path='bonus')
     def award_bonus(self, request, pk=None):
@@ -1194,4 +1325,273 @@ class AnalyticsPartFourView(APIView):
 
         # Step 5: Return the response data
         return Response(all_courses_data)
+
+
+class StudentTutorialAttemptInsightsView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        if not (request.user.is_staff or request.user.is_superuser):
+            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+
+        course_id = request.query_params.get('course_id')
+        course_group_id = request.query_params.get('course_group_id')
+
+        if not course_id:
+            return Response({"detail": "course_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        group_queryset = CourseGroup.objects.filter(course_id=course_id)
+        if course_group_id:
+            group_queryset = group_queryset.filter(id=course_group_id)
+
+        enrollments = UserCourseGroupEnrollment.objects.filter(
+            course_group__in=group_queryset
+        ).select_related('student', 'course_group')
+
+        students = {}
+        student_group_ids = defaultdict(set)
+        for enrollment in enrollments:
+            students[enrollment.student.id] = enrollment.student
+            student_group_ids[enrollment.student.id].add(enrollment.course_group_id)
+
+        tutorial_quests = Quest.objects.filter(
+            course_group__in=group_queryset,
+            tutorial_date__isnull=False
+        ).exclude(type="Private")
+
+        group_quest_ids = defaultdict(set)
+        all_quest_ids = set()
+        for quest_id, group_id in tutorial_quests.values_list('id', 'course_group_id'):
+            group_quest_ids[group_id].add(quest_id)
+            all_quest_ids.add(quest_id)
+
+        effective_pairs = _build_effective_attendance_pairs(
+            all_quest_ids,
+            students.keys()
+        )
+
+        student_attempted_quest_ids = defaultdict(set)
+        for quest_id, student_id in effective_pairs:
+            student_attempted_quest_ids[student_id].add(quest_id)
+
+        results = []
+        for student_id in sorted(students.keys()):
+            student = students[student_id]
+            enrolled_group_ids = student_group_ids.get(student_id, set())
+
+            relevant_quest_ids = set()
+            for group_id in enrolled_group_ids:
+                relevant_quest_ids.update(group_quest_ids.get(group_id, set()))
+
+            attempted = len(student_attempted_quest_ids.get(student_id, set()).intersection(relevant_quest_ids))
+            total_quests = len(relevant_quest_ids)
+            percentage = int(round((attempted / total_quests) * 100)) if total_quests > 0 else 0
+            results.append({
+                'id': student.id,
+                'email': student.email,
+                'username': student.nickname or student.username,
+                'total_points': float(student.total_points),
+                'course_group_ids': sorted(enrolled_group_ids),
+                'tutorial_attempted': attempted,
+                'tutorial_total': total_quests,
+                'tutorial_percentage': percentage
+            })
+
+        return Response(results)
+
+
+class StudentAttendanceColumnsView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        if not (request.user.is_staff or request.user.is_superuser):
+            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+
+        course_id = request.query_params.get('course_id')
+        course_group_id = request.query_params.get('course_group_id')
+
+        if not course_id:
+            return Response({"detail": "course_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        group_queryset = CourseGroup.objects.filter(course_id=course_id).order_by('name', 'id')
+        if course_group_id:
+            group_queryset = group_queryset.filter(id=course_group_id)
+
+        if not group_queryset.exists():
+            return Response({"columns": [], "attendance_keys": []})
+
+        is_single_group = bool(course_group_id)
+        quests = (
+            Quest.objects
+            .filter(course_group__in=group_queryset, tutorial_date__isnull=False)
+            .exclude(type="Private")
+            .select_related('course_group')
+            .order_by('tutorial_date', 'id')
+        )
+
+        columns = []
+        for quest in quests:
+            base_label = quest.tutorial_date.strftime('%d %b %Y')
+            label = base_label if is_single_group else f"{base_label} ({quest.course_group.name})"
+            columns.append({
+                "quest_id": quest.id,
+                "course_group_id": quest.course_group_id,
+                "label": label
+            })
+
+        effective_pairs = _build_effective_attendance_pairs(
+            set(quests.values_list('id', flat=True))
+        )
+        attendance_keys = [f"{quest_id}_{student_id}" for quest_id, student_id in effective_pairs]
+
+        return Response({
+            "columns": columns,
+            "attendance_keys": attendance_keys
+        })
+
+
+class StudentAttendanceOverrideView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, *args, **kwargs):
+        if not (request.user.is_staff or request.user.is_superuser):
+            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+
+        student_id = request.data.get('student_id')
+        quest_id = request.data.get('quest_id')
+        is_present = request.data.get('is_present')
+
+        if student_id is None or quest_id is None or is_present is None:
+            return Response(
+                {"detail": "student_id, quest_id and is_present are required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if not isinstance(is_present, bool):
+            return Response({"detail": "is_present must be boolean"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            student = EduquestUser.objects.get(id=student_id)
+            quest = Quest.objects.select_related('course_group').get(id=quest_id)
+        except EduquestUser.DoesNotExist:
+            return Response({"detail": "Student not found"}, status=status.HTTP_404_NOT_FOUND)
+        except Quest.DoesNotExist:
+            return Response({"detail": "Quest not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        if quest.type == "Private" or quest.tutorial_date is None:
+            return Response({"detail": "Only tutorial quests can be overridden"}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not UserCourseGroupEnrollment.objects.filter(student=student, course_group=quest.course_group).exists():
+            return Response({"detail": "Student is not enrolled in this course group"}, status=status.HTTP_400_BAD_REQUEST)
+
+        base_present = UserQuestAttempt.objects.filter(student=student, quest=quest).exists()
+        if base_present == is_present:
+            StudentAttendanceOverride.objects.filter(student=student, quest=quest).delete()
+            return Response({"detail": "Attendance override cleared", "effective_present": base_present})
+
+        StudentAttendanceOverride.objects.update_or_create(
+            student=student,
+            quest=quest,
+            defaults={
+                'is_present': is_present,
+                'updated_by': request.user
+            }
+        )
+        return Response({"detail": "Attendance override updated", "effective_present": is_present})
+
+
+class StudentAttendanceWorkbookExportView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @staticmethod
+    def _sheet_title(raw_name, used_titles):
+        cleaned = ''.join(ch for ch in raw_name if ch not in ['\\', '/', '*', '[', ']', ':', '?'])
+        base = (cleaned or 'Group')[:31]
+        title = base
+        suffix = 1
+        while title in used_titles:
+            tail = f"_{suffix}"
+            title = f"{base[:31 - len(tail)]}{tail}"
+            suffix += 1
+        used_titles.add(title)
+        return title
+
+    def get(self, request, *args, **kwargs):
+        if not (request.user.is_staff or request.user.is_superuser):
+            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+
+        course_id = request.query_params.get('course_id')
+        course_group_id = request.query_params.get('course_group_id')
+
+        if not course_id:
+            return Response({"detail": "course_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        group_queryset = CourseGroup.objects.filter(course_id=course_id).order_by('name', 'id')
+        if course_group_id:
+            group_queryset = group_queryset.filter(id=course_group_id)
+
+        if not group_queryset.exists():
+            return Response({"detail": "No course groups found for this course."}, status=status.HTTP_404_NOT_FOUND)
+
+        course = Course.objects.filter(id=course_id).select_related('term__academic_year').first()
+        workbook = Workbook()
+        workbook.remove(workbook.active)
+        used_titles = set()
+
+        for course_group in group_queryset:
+            sheet = workbook.create_sheet(self._sheet_title(course_group.name, used_titles))
+
+            enrollments = (
+                UserCourseGroupEnrollment.objects
+                .filter(course_group=course_group)
+                .select_related('student')
+                .order_by('student__nickname', 'student__username', 'student__id')
+            )
+            students = [enrollment.student for enrollment in enrollments]
+            student_ids = [student.id for student in students]
+
+            tutorial_quests = list(
+                Quest.objects
+                .filter(course_group=course_group, tutorial_date__isnull=False)
+                .exclude(type="Private")
+                .order_by('tutorial_date', 'id')
+            )
+
+            date_headers = [
+                quest.tutorial_date.strftime('%d-%b-%Y') if quest.tutorial_date else 'No Date'
+                for quest in tutorial_quests
+            ]
+            header_row = ['Student Name', 'Email', *date_headers, 'Attendance']
+            sheet.append(header_row)
+
+            attempt_pairs = _build_effective_attendance_pairs(
+                {quest.id for quest in tutorial_quests},
+                student_ids
+            ) if tutorial_quests and student_ids else set()
+
+            total_sessions = len(tutorial_quests)
+            for student in students:
+                row_marks = []
+                attempted_sessions = 0
+                for quest in tutorial_quests:
+                    mark = 1 if (quest.id, student.id) in attempt_pairs else 0
+                    row_marks.append(mark)
+                    attempted_sessions += mark
+
+                percentage = int(round((attempted_sessions / total_sessions) * 100)) if total_sessions > 0 else 0
+                attendance = f"{attempted_sessions}/{total_sessions} ({percentage}%)"
+                sheet.append([student.nickname or student.username, student.email, *row_marks, attendance])
+
+        output = BytesIO()
+        workbook.save(output)
+        output.seek(0)
+
+        course_code = course.code if course and course.code else 'course'
+        filename = f"student-attendance-{course_code}.xlsx"
+        response = HttpResponse(
+            output.getvalue(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        return response
 

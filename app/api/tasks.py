@@ -616,3 +616,4 @@ def update_cognitive_profile(student_id):
 
     except Exception as e:
         print(f"[Error Updating Cognitive Profile]: {str(e)}")
+

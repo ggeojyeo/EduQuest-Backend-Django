@@ -22,6 +22,9 @@ class EduquestUser(AbstractUser):
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
     total_points = models.FloatField(default=0)
+    daily_checkin_streak = models.PositiveIntegerField(default=0)
+    daily_checkin_longest_streak = models.PositiveIntegerField(default=0)
+    daily_checkin_last_date = models.DateField(null=True, blank=True)
 
     def __str__(self):
         return f"{self.id} - {self.username}"
@@ -558,3 +561,30 @@ class StudentFeedback(models.Model):
 
     def __str__(self):
         return f"Feedback for {self.user_quest_attempt.student.username} on Quest {self.user_quest_attempt.quest.name}"
+
+
+class StudentAttendanceOverride(models.Model):
+    """
+    Manual attendance correction per student and tutorial quest.
+    is_present=True forces attendance to 1, is_present=False forces attendance to 0.
+    """
+
+    student = models.ForeignKey(EduquestUser, on_delete=models.CASCADE, related_name='attendance_overrides')
+    quest = models.ForeignKey(Quest, on_delete=models.CASCADE, related_name='attendance_overrides')
+    is_present = models.BooleanField(default=True)
+    updated_by = models.ForeignKey(
+        EduquestUser,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='attendance_overrides_updated'
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('student', 'quest')
+
+    def __str__(self):
+        state = 'Present' if self.is_present else 'Absent'
+        return f"{self.student.username} - {self.quest.name} ({state})"

@@ -21,6 +21,10 @@ from .views import (
     AnalyticsPartTwoView,
     AnalyticsPartThreeView,
     AnalyticsPartFourView,
+    StudentTutorialAttemptInsightsView,
+    StudentAttendanceColumnsView,
+    StudentAttendanceOverrideView,
+    StudentAttendanceWorkbookExportView,
     test_view,
     status_view
 )
@@ -54,4 +58,8 @@ urlpatterns = [
     path("analytics/part-two/", AnalyticsPartTwoView.as_view(), name='analytics-part-two'),
     path("analytics/part-three/", AnalyticsPartThreeView.as_view(), name='analytics-part-three'),
     path("analytics/part-four/", AnalyticsPartFourView.as_view(), name='analytics-part-four'),
+    path("analytics/student-tutorial-attempts/", StudentTutorialAttemptInsightsView.as_view(), name='analytics-student-tutorial-attempts'),
+    path("analytics/student-attendance-columns/", StudentAttendanceColumnsView.as_view(), name='analytics-student-attendance-columns'),
+    path("analytics/student-attendance-override/", StudentAttendanceOverrideView.as_view(), name='analytics-student-attendance-override'),
+    path("analytics/student-attendance-workbook/", StudentAttendanceWorkbookExportView.as_view(), name='analytics-student-attendance-workbook'),
 ]
