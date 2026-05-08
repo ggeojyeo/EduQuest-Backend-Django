@@ -27,3 +27,22 @@ venv/
 app/celerybeat-schedule.bak
 app/celerybeat-schedule.dat
 app/celerybeat-schedule.dir
+
+# Terraform (keep only core .tf source files in git)
+**/.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+*.tfvars
+*.tfvars.json
+.terraform.lock.hcl
+
+# Local Terraform-generated configs
+terraform/**/*.env
+terraform/**/*-compose.yml
+deployment/terraform/*-compose.yml

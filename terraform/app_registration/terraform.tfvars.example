@@ -1,0 +1,26 @@
+project_name = "eduquest"
+environment  = "ntu"
+backend_display_name  = "EduQuest - Backend"
+frontend_display_name = "EduQuest - Frontend"
+
+# Must be unique in your tenant. Common format:
+# api://<backend-client-id> OR api://eduquest-ntu-backend-api
+backend_identifier_uri = "api://eduquest-ntu-backend-api"
+backend_scope_value    = "user_impersonation"
+
+# Optional for backend if you don't use backend web redirect callbacks.
+backend_redirect_uris = []
+
+# Frontend app redirect URIs (SPA)
+frontend_redirect_uris = [
+  "https://eduquest-ntu-frontend.azurewebsites.net/",
+  "http://localhost/",
+  "http://localhost:80/",
+  "http://localhost:3000/",
+  "https://eduquest-frontend.azurewebsites.net/auth/sign-in",
+  "https://eduquest-frontend.azurewebsites.net/"
+]
+
+# Optional
+frontend_logout_url = "http://localhost:3000/"
+
