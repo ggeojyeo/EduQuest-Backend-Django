@@ -23,7 +23,10 @@ class CustomJWTAuthentication(JWTAuthentication):
 
         try:
             validated_token = self.get_validated_token(raw_token)
-            user = self.get_or_create_user(validated_token)
+            if validated_token.get('user_id'):
+                user = self.get_user(validated_token)
+            else:
+                user = self.get_or_create_user(validated_token)
             return user, validated_token
         except AuthenticationFailed as e:
             print(f"Authentication failed: {str(e)}")
@@ -34,22 +37,45 @@ class CustomJWTAuthentication(JWTAuthentication):
 
     def get_validated_token(self, raw_token):
         try:
+            return super().get_validated_token(raw_token)
+        except AuthenticationFailed:
+            pass
+        except Exception:
+            pass
+
+        try:
             # Decode the token without verification to get the payload
             unverified_header = jwt.get_unverified_header(raw_token)
             unverified_payload = jwt.decode(raw_token, options={"verify_signature": False})
 
             issuer = unverified_payload.get('iss')
-            tenant_id = unverified_payload.get('tid')
+            tenant_id = unverified_payload.get('tid') or getattr(settings, 'AZURE_TENANT_ID', None)
 
-            # Fetch the public keys from the Azure AD endpoint
-            jwks_url = f"https://login.microsoftonline.com/{tenant_id}/discovery/v2.0/keys"
-            response = requests.get(jwks_url)
-            if response.status_code != 200:
-                raise AuthenticationFailed('Failed to fetch public keys from Azure AD.')
+            # Resolve JWKS URL. Prefer the issuer's OpenID configuration when available.
+            jwks_url = None
+            if issuer:
+                # Discover jwks_uri from the issuer's configuration
+                openid_cfg_url = issuer.rstrip('/') + '/.well-known/openid-configuration'
+                cfg_resp = requests.get(openid_cfg_url, timeout=5)
+                if cfg_resp.status_code == 200:
+                    jwks_url = cfg_resp.json().get('jwks_uri')
+            # Fallback to tenant-based endpoint if discovery failed
+            if not jwks_url and tenant_id:
+                jwks_url = f"https://login.microsoftonline.com/{tenant_id}/discovery/v2.0/keys"
+
+            if not jwks_url:
+                raise AuthenticationFailed('Could not determine JWKS endpoint for token verification.')
+
+            response = requests.get(jwks_url, timeout=5)
+            response.raise_for_status()
 
             # The keys are used to verify the token signature
             keys = response.json().get('keys')
-            key = next(k for k in keys if k['kid'] == unverified_header['kid'])
+            key = None
+            try:
+                key = next(k for k in keys if k['kid'] == unverified_header['kid'])
+            except StopIteration:
+                raise AuthenticationFailed(f"No matching JWK found for kid={unverified_header.get('kid')} at {jwks_url}")
             public_key = jwt.algorithms.RSAAlgorithm.from_jwk(key)
 
             # Validate the token using the public key. Accept both client-id and api://client-id audiences.

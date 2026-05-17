@@ -1,0 +1,52 @@
+# ============================================
+# TERRAFORM CONFIGURATION VALUES (EXAMPLE)
+# ============================================
+# Copy this file to terraform.tfvars and fill in your values
+#
+# AUTOMATED:
+# - Azure OpenAI (created automatically)
+# - PostgreSQL password (generated)
+# - Secret keys (generated)
+#
+# MANUAL (from your organization's Azure AD tenant):
+# - Azure AD App Registrations (backend + frontend)
+# - Or reference existing resource group & app service plan
+
+base_name = "eduquest"
+location  = "southeastasia"
+
+# ============================================
+# EXISTING AZURE RESOURCES (from professor)
+# ============================================
+# Set to true to use existing resources created by your professor
+# Set to false to create new resources
+use_existing_resources = true
+
+# Name of the existing resource group (change if different)
+existing_resource_group_name = "05-OCA-Shared-Recourses"
+
+# Name of the existing App Service Plan (change if different)
+existing_app_service_plan_name = "fyp-shared-appserviceplan"
+
+# ============================================
+# AZURE AD (from your organization's tenant)
+# ============================================
+# Option 1: Auto-read from app_registration/terraform.tfstate (recommended)
+use_app_registration_outputs = true
+
+# Option 2: Provide manually (uncomment and fill in):
+# azure_ad_client_id       = "YOUR_BACKEND_CLIENT_ID"
+# azure_ad_client_secret   = "YOUR_BACKEND_CLIENT_SECRET"
+# frontend_azure_client_id = "YOUR_FRONTEND_CLIENT_ID"
+# login_request_scope      = "api://YOUR_BACKEND_APP/access_as_user"
+
+# ============================================
+# AZURE OPENAI (optional - defaults shown)
+# ============================================
+openai_location        = "eastus"          # Region for OpenAI
+openai_resource_name   = "eduquest-openaiazure" # Azure OpenAI resource name
+openai_custom_subdomain_name = "eduquest-openaiazure" # Azure OpenAI endpoint subdomain
+openai_deployment_name = "gpt-4o"          # Deployment name
+openai_model_name      = "gpt-4o"          # Model to deploy
+openai_model_version   = "2024-11-20"      # Model version
+openai_capacity        = 10                # TPM in thousands

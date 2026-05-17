@@ -25,6 +25,7 @@ from .views import (
     StudentAttendanceColumnsView,
     StudentAttendanceOverrideView,
     StudentAttendanceWorkbookExportView,
+    DemoLoginView,
     test_view,
     status_view
 )
@@ -53,6 +54,7 @@ router.register(r'student-feedback', StudentFeedbackViewSet, basename='student-f
 urlpatterns = [
     path('test/', test_view),
     path('status/', status_view),
+    path('auth/demo-login/', DemoLoginView.as_view(), name='demo-login'),
     path('', include(router.urls)),
     path("analytics/part-one/", AnalyticsPartOneView.as_view(), name='analytics-part-one'),
     path("analytics/part-two/", AnalyticsPartTwoView.as_view(), name='analytics-part-two'),

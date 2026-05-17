@@ -29,6 +29,9 @@ SECRET_KEY = os.environ.get('SECRET_KEY')
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = bool(int(os.environ.get('DEBUG', 0)))
+DEMO_LOGIN_ENABLED = bool(int(os.environ.get('DEMO_LOGIN_ENABLED', int(DEBUG))))
+DEMO_STUDENT_PASSWORD = os.environ.get('DEMO_STUDENT_PASSWORD', 'demo123')
+DEMO_INSTRUCTOR_PASSWORD = os.environ.get('DEMO_INSTRUCTOR_PASSWORD', 'demo123')
 
 ALLOWED_HOSTS = []
 ALLOWED_HOSTS_ENV = os.environ.get('ALLOWED_HOSTS', 0)

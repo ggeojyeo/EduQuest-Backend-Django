@@ -8,9 +8,10 @@ from django.db import transaction
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
-from rest_framework.permissions import IsAuthenticated, IsAdminUser, SAFE_METHODS
+from rest_framework.permissions import AllowAny, IsAuthenticated, IsAdminUser, SAFE_METHODS
 from django.contrib.auth import get_user_model
 from rest_framework.views import APIView
+from rest_framework_simplejwt.tokens import RefreshToken
 from datetime import timedelta
 from zoneinfo import ZoneInfo
 from django.db.models import Count, Q, Max, Avg, Prefetch
@@ -67,6 +68,74 @@ import logging
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
+
+DEMO_USERS = {
+    "DEMO.STUDENT@E.NTU.EDU.SG": {
+        "email": "DEMO.STUDENT@E.NTU.EDU.SG",
+        "username": "Demo Student",
+        "nickname": "Demo Student",
+        "is_staff": False,
+        "password_setting": "DEMO_STUDENT_PASSWORD",
+    },
+    "DEMO.INSTRUCTOR@NTU.EDU.SG": {
+        "email": "DEMO.INSTRUCTOR@NTU.EDU.SG",
+        "username": "Demo Instructor",
+        "nickname": "Demo Instructor",
+        "is_staff": True,
+        "password_setting": "DEMO_INSTRUCTOR_PASSWORD",
+    },
+}
+
+
+class DemoLoginView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request, *args, **kwargs):
+        # NOTE: removed runtime gate `DEMO_LOGIN_ENABLED` so demo login
+        # is always available. Be careful: enabling demo login in
+        # production environments is a security risk. To re-enable the
+        # gate, restore the check against `settings.DEMO_LOGIN_ENABLED`.
+
+        email = str(request.data.get("email", "")).strip().upper()
+        password = str(request.data.get("password", ""))
+
+        demo_user = DEMO_USERS.get(email)
+        if demo_user is None:
+            return Response({"detail": "Invalid demo email or password."}, status=status.HTTP_401_UNAUTHORIZED)
+
+        expected_password = getattr(settings, demo_user["password_setting"])
+        if password != expected_password:
+            return Response({"detail": "Invalid demo email or password."}, status=status.HTTP_401_UNAUTHORIZED)
+
+        user, _ = EduquestUser.objects.get_or_create(
+            email=demo_user["email"],
+            defaults={
+                "email": demo_user["email"],
+                "username": demo_user["username"],
+                "nickname": demo_user["username"],
+                "is_staff": demo_user["is_staff"],
+                "last_login": timezone.now(),
+            }
+        )
+
+        fields_to_update = []
+        for field in ("username", "nickname", "is_staff"):
+            next_value = demo_user[field]
+            if getattr(user, field) != next_value:
+                setattr(user, field, next_value)
+                fields_to_update.append(field)
+
+        user.last_login = timezone.now()
+        fields_to_update.append("last_login")
+        if fields_to_update:
+            user.save(update_fields=fields_to_update)
+
+        refresh = RefreshToken.for_user(user)
+        return Response({
+            "access": str(refresh.access_token),
+            "refresh": str(refresh),
+            "user": EduquestUserSerializer(user).data,
+        })
 
 def _build_effective_attendance_pairs(quest_ids, student_ids=None):
     if not quest_ids:
@@ -223,15 +292,29 @@ class CourseViewSet(viewsets.ModelViewSet):
     serializer_class = CourseSerializer
     permission_classes = [IsAuthenticated]
 
+    def get_queryset(self):
+        queryset = Course.objects.all().order_by('-id')
+
+        if self.request.user.is_staff or self.request.user.is_superuser:
+            return queryset
+
+        enrolled_course_ids = UserCourseGroupEnrollment.objects.filter(
+            student=self.request.user
+        ).values_list('course_group__course_id', flat=True)
+        return queryset.exclude(type='Private').filter(id__in=enrolled_course_ids)
+
     @action(detail=False, methods=['get'])
     def non_private(self, request):
-        queryset = Course.objects.exclude(type='Private').order_by('-id')
+        queryset = self.get_queryset().exclude(type='Private').order_by('-id')
         serializer = CourseSerializer(queryset, many=True)
         return Response(serializer.data)
 
     @action(detail=False, methods=['get'])
     def by_enrolled_user(self, request):
         user_id = request.query_params.get('user_id')
+        if not (request.user.is_staff or request.user.is_superuser):
+            user_id = request.user.id
+
         # Get the course group enrollments for the given user
         course_group_enrollments = UserCourseGroupEnrollment.objects.filter(student_id=user_id)
         # Extract the course IDs from the related course groups
@@ -315,9 +398,23 @@ class QuestViewSet(viewsets.ModelViewSet):
     serializer_class = QuestSerializer
     permission_classes = [IsAuthenticated]
 
+    def get_queryset(self):
+        queryset = Quest.objects.all().order_by('-id')
+
+        if self.request.user.is_staff or self.request.user.is_superuser:
+            return queryset
+
+        enrolled_course_group_ids = UserCourseGroupEnrollment.objects.filter(
+            student=self.request.user
+        ).values_list('course_group_id', flat=True)
+        return queryset.filter(
+            Q(course_group_id__in=enrolled_course_group_ids) & ~Q(type='Private') |
+            Q(organiser=self.request.user, type='Private')
+        ).order_by('-id')
+
     @action(detail=False, methods=['get'])
     def non_private(self, request):
-        queryset = Quest.objects.exclude(type='Private').order_by('-id')
+        queryset = self.get_queryset().exclude(type='Private').order_by('-id')
         serializer = QuestSerializer(queryset, many=True)
         return Response(serializer.data)
 
@@ -331,6 +428,9 @@ class QuestViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'])
     def by_enrolled_user(self, request):
         user_id = request.query_params.get('user_id')
+        if not (request.user.is_staff or request.user.is_superuser):
+            user_id = request.user.id
+
         # Get all course group enrollments for the user
         course_group_enrollments = UserCourseGroupEnrollment.objects.filter(student=user_id)
         # Get all quests for the course groups
