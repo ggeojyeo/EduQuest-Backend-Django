@@ -226,6 +226,7 @@ class EduquestUserViewSet(viewsets.ModelViewSet):
                 "current_streak": user.daily_checkin_streak,
                 "longest_streak": user.daily_checkin_longest_streak,
                 "total_points": float(user.total_points),
+                "current_points": float(user.current_points),
             })
 
         yesterday = today - timedelta(days=1)
@@ -243,11 +244,13 @@ class EduquestUserViewSet(viewsets.ModelViewSet):
             user.daily_checkin_streak = next_streak
             user.daily_checkin_longest_streak = max(user.daily_checkin_longest_streak, next_streak)
             user.total_points += points_awarded
+            user.current_points += points_awarded
             user.save(update_fields=[
                 'daily_checkin_last_date',
                 'daily_checkin_streak',
                 'daily_checkin_longest_streak',
                 'total_points',
+                'current_points',
             ])
             # Create a record in UserDailyCheckin to track all check-in dates
             UserDailyCheckin.objects.create(student=user, checkin_date=today)
@@ -260,6 +263,7 @@ class EduquestUserViewSet(viewsets.ModelViewSet):
             "current_streak": user.daily_checkin_streak,
             "longest_streak": user.daily_checkin_longest_streak,
             "total_points": float(user.total_points),
+            "current_points": float(user.current_points),
         })
 
 class AcademicYearViewSet(viewsets.ModelViewSet):
@@ -761,7 +765,9 @@ class UserQuestAttemptViewSet(viewsets.ModelViewSet):
         attempt.save(update_fields=['bonus_points', 'bonus_awarded'])
 
         user.total_points += bonus_points
+        user.current_points += bonus_points
         user.save(update_fields=['total_points'])
+        user.save(update_fields=['current_points'])
 
         return Response({
             "bonus_awarded": True,
@@ -1505,6 +1511,7 @@ class StudentTutorialAttemptInsightsView(APIView):
                 'email': student.email,
                 'username': student.nickname or student.username,
                 'total_points': float(student.total_points),
+                'current_points': float(student.current_points),
                 'course_group_ids': sorted(enrolled_group_ids),
                 'tutorial_attempted': attempted,
                 'tutorial_total': total_quests,
