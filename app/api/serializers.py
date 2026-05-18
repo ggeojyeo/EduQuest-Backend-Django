@@ -19,6 +19,7 @@ from .models import (
     UserQuestBadge,
     UserCourseBadge,
     Document,
+    UserCosmetics,
     StudentFeedback,
     UserDailyCheckin,
 )
@@ -600,6 +601,67 @@ class BadgeSerializer(serializers.ModelSerializer):
     class Meta:
         model = Badge
         fields = '__all__'
+
+
+class UserCosmeticsSerializer(serializers.ModelSerializer):
+    user_id = serializers.PrimaryKeyRelatedField(
+        queryset=EduquestUser.objects.all(),
+        source='user',
+        write_only=True
+    )
+    profile_picture_id = serializers.PrimaryKeyRelatedField(
+        queryset=Image.objects.all(),
+        source='profile_picture',
+        write_only=True,
+        allow_null=True
+    )
+    profile_background_id = serializers.PrimaryKeyRelatedField(
+        queryset=Image.objects.all(),
+        source='profile_background',
+        write_only=True,
+        allow_null=True
+    )
+    profile_border_id = serializers.PrimaryKeyRelatedField(
+        queryset=Image.objects.all(),
+        source='profile_border',
+        write_only=True,
+        allow_null=True
+    )
+    banner_id = serializers.PrimaryKeyRelatedField(
+        queryset=Image.objects.all(),
+        source='banner',
+        write_only=True,
+        allow_null=True
+    )
+    displayed_badges = serializers.PrimaryKeyRelatedField(
+        queryset=Badge.objects.all(),
+        many=True,
+        source='displayed_badges'
+    )
+
+    class Meta:
+        model = UserCosmetics
+        fields = [
+            'id',
+            'user_id',
+            'profile_picture_id',
+            'profile_background_id',
+            'profile_border_id',
+            'banner_id',
+            'displayed_badges',
+            'about_me',
+            'created_at',
+            'updated_at',
+        ]
+
+    def update(self, instance, validated_data):
+        displayed_badges = validated_data.pop('displayed_badges', None)
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+        if displayed_badges is not None:
+            instance.displayed_badges.set(displayed_badges)
+        return instance
 
 
 class UserCourseBadgeSerializer(serializers.ModelSerializer):

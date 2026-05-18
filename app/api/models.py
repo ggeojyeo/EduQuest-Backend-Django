@@ -88,6 +88,7 @@ class EduquestUser(AbstractUser):
                     )
 
             UserCourseGroupEnrollment.objects.get_or_create(student=self, course_group=private_course_group)
+            UserCosmetics.objects.get_or_create(user=self)
             print(f"[Enroll Private Course Group] User: {self.username} has been enrolled in the Private course group")
 
 
@@ -510,6 +511,25 @@ class Document(models.Model):
 
     def __str__(self):
         return self.name
+
+
+class UserCosmetics(models.Model):
+    """
+    Model to store user's profile cosmetics and display preferences.
+    """
+    user = models.OneToOneField(EduquestUser, on_delete=models.CASCADE, related_name='cosmetics')
+    profile_picture = models.ForeignKey(Image, on_delete=models.SET_NULL, null=True, blank=True, related_name='profile_picture_users')
+    profile_background = models.ForeignKey(Image, on_delete=models.SET_NULL, null=True, blank=True, related_name='profile_background_users')
+    profile_border = models.ForeignKey(Image, on_delete=models.SET_NULL, null=True, blank=True, related_name='profile_border_users')
+    banner = models.ForeignKey(Image, on_delete=models.SET_NULL, null=True, blank=True, related_name='banner_users')
+    displayed_badges = models.ManyToManyField('Badge', blank=True, related_name='displayed_in_user_profiles')
+    about_me = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Cosmetics for {self.user.username}"
+
 
 class StudentCognitiveProfile(models.Model):
     """

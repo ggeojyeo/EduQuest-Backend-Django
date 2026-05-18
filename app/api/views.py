@@ -37,6 +37,7 @@ from .models import (
     UserQuestBadge,
     UserCourseBadge,
     Document,
+    UserCosmetics,
     StudentFeedback,
     StudentAttendanceOverride,
     UserDailyCheckin
@@ -58,6 +59,7 @@ from .serializers import (
     UserQuestBadgeSerializer,
     UserCourseBadgeSerializer,
     DocumentSerializer,
+    UserCosmeticsSerializer,
     StudentFeedbackSerializer
 )
 from rest_framework.decorators import api_view
@@ -973,6 +975,15 @@ class DocumentViewSet(viewsets.ModelViewSet):
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         except Exception as e:
             return Response({"Error uploading document": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class UserCosmeticsViewSet(viewsets.ModelViewSet):
+    queryset = UserCosmetics.objects.all().order_by('-id')
+    serializer_class = UserCosmeticsSerializer
+    permission_classes = [IsAuthenticated]
+
+    def perform_create(self, serializer):
+        serializer.save(user=self.request.user)
 
 
 class AnalyticsPartOneView(APIView):
