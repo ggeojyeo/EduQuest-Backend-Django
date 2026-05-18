@@ -22,6 +22,7 @@ from .models import (
     UserCosmetics,
     StudentFeedback,
     UserDailyCheckin,
+    Cosmetic
 )
 
 
@@ -603,6 +604,17 @@ class BadgeSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
 
+class CosmeticSerializer(serializers.ModelSerializer):
+    cosmetic_id = serializers.PrimaryKeyRelatedField(
+        queryset=Cosmetic.objects.all(),
+        source='cosmetic',
+        write_only=True
+    )
+    class Meta:
+        model = Cosmetic
+        fields = '__all__'
+
+
 class UserCosmeticsSerializer(serializers.ModelSerializer):
     user_id = serializers.PrimaryKeyRelatedField(
         queryset=EduquestUser.objects.all(),
@@ -610,25 +622,19 @@ class UserCosmeticsSerializer(serializers.ModelSerializer):
         write_only=True
     )
     profile_picture_id = serializers.PrimaryKeyRelatedField(
-        queryset=Image.objects.all(),
+        queryset=Cosmetic.objects.all().filter(type=Cosmetic.TypeOfCosmetic.Picture),
         source='profile_picture',
         write_only=True,
         allow_null=True
     )
-    profile_background_id = serializers.PrimaryKeyRelatedField(
-        queryset=Image.objects.all(),
-        source='profile_background',
-        write_only=True,
-        allow_null=True
-    )
     profile_border_id = serializers.PrimaryKeyRelatedField(
-        queryset=Image.objects.all(),
+        queryset=Cosmetic.objects.all().filter(type=Cosmetic.TypeOfCosmetic.Border),
         source='profile_border',
         write_only=True,
         allow_null=True
     )
     banner_id = serializers.PrimaryKeyRelatedField(
-        queryset=Image.objects.all(),
+        queryset=Cosmetic.objects.all().filter(type=Cosmetic.TypeOfCosmetic.Banner),
         source='banner',
         write_only=True,
         allow_null=True
@@ -645,7 +651,7 @@ class UserCosmeticsSerializer(serializers.ModelSerializer):
             'id',
             'user_id',
             'profile_picture_id',
-            'profile_background_id',
+            'profile_background',
             'profile_border_id',
             'banner_id',
             'displayed_badges',
@@ -743,6 +749,13 @@ class StudentFeedbackSerializer(serializers.ModelSerializer):
 
 
 class UserDailyCheckinSerializer(serializers.ModelSerializer):
+    student_id = serializers.PrimaryKeyRelatedField(
+        queryset=EduquestUser.objects.all(),
+        source='student',
+        write_only=True
+    )
+    student = EduquestUserSummarySerializer(read_only=True)
+
     class Meta:
         model = UserDailyCheckin
         fields = ['id', 'student', 'checkin_date']
