@@ -5,6 +5,7 @@ import os
 from celery import chain
 from django.db import models
 from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
 from django.contrib.auth.models import AbstractUser
 from django.utils.text import slugify
 from .utils import split_full_name
@@ -22,9 +23,11 @@ class EduquestUser(AbstractUser):
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
     total_points = models.FloatField(default=0)
+    current_points = models.FloatField(default=0)
     daily_checkin_streak = models.PositiveIntegerField(default=0)
     daily_checkin_longest_streak = models.PositiveIntegerField(default=0)
     daily_checkin_last_date = models.DateField(null=True, blank=True)
+    daily_goals = models.JSONField(default=list, blank=True)  # [{goal: str, completed: bool}, ...]
 
     def __str__(self):
         return f"{self.id} - {self.username}"
@@ -87,6 +90,7 @@ class EduquestUser(AbstractUser):
                     )
 
             UserCourseGroupEnrollment.objects.get_or_create(student=self, course_group=private_course_group)
+            UserCosmetics.objects.get_or_create(user=self)
             print(f"[Enroll Private Course Group] User: {self.username} has been enrolled in the Private course group")
 
 
@@ -510,6 +514,63 @@ class Document(models.Model):
     def __str__(self):
         return self.name
 
+class Cosmetic(models.Model):
+    """
+    Model to store cosmetic items that users can equip
+    """
+    class TypeOfCosmetic(models.TextChoices):
+        Picture = 'Picture', _('Picture')
+        Border = 'Border', _('Border')
+        Banner = 'Banner', _('Banner')
+
+    name = models.CharField(max_length=100)
+    type = models.CharField(max_length=50, choices=TypeOfCosmetic.choices)
+    image = models.ForeignKey(Image, on_delete=models.SET_NULL, null=True, blank=True)
+    cost = models.FloatField(default=0)
+
+    def get_type(self) -> TypeOfCosmetic:
+        return self.TypeOfCosmetic(self.type)
+
+    def __str__(self):
+        return self.name
+
+class UserCosmetics(models.Model):
+    """
+    Model to store user's profile cosmetics and display preferences.
+    """
+    user = models.OneToOneField(EduquestUser, on_delete=models.CASCADE)
+    profile_picture = models.ForeignKey(Cosmetic, on_delete=models.SET_NULL, null=True, blank=True, related_name='usercosmetics_profile_picture')
+    profile_background = models.CharField(max_length=255, blank=True, default="")
+    profile_border = models.ForeignKey(Cosmetic, on_delete=models.SET_NULL, null=True, blank=True, related_name='usercosmetics_profile_border')
+    banner = models.ForeignKey(Cosmetic, on_delete=models.SET_NULL, null=True, blank=True, related_name='usercosmetics_banner')
+    displayed_badges = models.ManyToManyField('Badge', blank=True)
+    about_me = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def clean(self):
+        errors = {}
+
+        if self.profile_picture and self.profile_picture.type != Cosmetic.TypeOfCosmetic.Picture:
+            errors['profile_picture'] = 'Only cosmetics classified as Picture may be used for profile_picture.'
+
+        if self.profile_border and self.profile_border.type != Cosmetic.TypeOfCosmetic.Border:
+            errors['profile_border'] = 'Only cosmetics classified as Border may be used for profile_border.'
+
+        if self.banner and self.banner.type != Cosmetic.TypeOfCosmetic.Banner:
+            errors['banner'] = 'Only cosmetics classified as Banner may be used for banner.'
+
+        if errors:
+            raise ValidationError(errors)
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        super(UserCosmetics, self).save(*args, **kwargs)
+
+    def __str__(self):
+        return f"Cosmetics for {self.user.username}"
+
+
 class StudentCognitiveProfile(models.Model):
     """
     Track student's cognitive performance across topics and difficulty levels
@@ -588,3 +649,19 @@ class StudentAttendanceOverride(models.Model):
     def __str__(self):
         state = 'Present' if self.is_present else 'Absent'
         return f"{self.student.username} - {self.quest.name} ({state})"
+
+
+class UserDailyCheckin(models.Model):
+    """
+    Model to store all daily check-in records for users
+    This allows tracking the complete history of check-in dates instead of just the last one
+    """
+    student = models.ForeignKey(EduquestUser, on_delete=models.CASCADE, related_name='daily_checkins')
+    checkin_date = models.DateField()
+
+    class Meta:
+        unique_together = ('student', 'checkin_date')
+        ordering = ['-checkin_date']
+
+    def __str__(self):
+        return f"{self.student.username} checked in on {self.checkin_date}"
