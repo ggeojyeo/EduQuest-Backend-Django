@@ -60,7 +60,8 @@ from .serializers import (
     UserCourseBadgeSerializer,
     DocumentSerializer,
     CosmeticSerializer,
-    StudentFeedbackSerializer
+    StudentFeedbackSerializer,
+    UserDailyCheckinSerializer
 )
 from rest_framework.decorators import api_view
 from django.utils.decorators import method_decorator
@@ -265,6 +266,16 @@ class EduquestUserViewSet(viewsets.ModelViewSet):
             "total_points": float(user.total_points),
             "current_points": float(user.current_points),
         })
+    
+    @action(detail=False, methods=['post'], url_path='calendar-daily-check-in')
+    def calendar_daily_check_in(self, request):
+        user = request.user
+        if not isinstance(user, EduquestUser):
+            return Response({"detail": "Invalid user context"}, status=status.HTTP_400_BAD_REQUEST)
+
+        dates = list(UserDailyCheckin.objects.filter(student=user).order_by('checkin_date').values_list('checkin_date', flat=True))
+        dates_iso = [d.isoformat() for d in dates]
+        return Response(dates_iso)
 
 class AcademicYearViewSet(viewsets.ModelViewSet):
     queryset = AcademicYear.objects.all().order_by('-id')
