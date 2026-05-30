@@ -277,9 +277,13 @@ class EduquestUserViewSet(viewsets.ModelViewSet):
             "current_points": float(user.current_points),
         })
     
-    @action(detail=False, methods=['post'], url_path='calendar-daily-check-in')
+    @action(detail=False, methods=['get'], url_path='calendar-daily-check-in')
     def calendar_daily_check_in(self, request):
-        user = request.user
+        user_id = request.query_params.get('id')
+        if not user_id:
+            return Response({"detail": "id is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        user = EduquestUser.objects.get(id=user_id)
         if not isinstance(user, EduquestUser):
             return Response({"detail": "Invalid user context"}, status=status.HTTP_400_BAD_REQUEST)
 
