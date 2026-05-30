@@ -246,15 +246,25 @@ class EduquestUserViewSet(viewsets.ModelViewSet):
             user.daily_checkin_longest_streak = max(user.daily_checkin_longest_streak, next_streak)
             user.total_points += points_awarded
             user.current_points += points_awarded
+
+            # Reset daily goals
+            try:
+                for goals in user.daily_goals:
+                    goals['complete'] = 0
+            except:
+                pass
+
             user.save(update_fields=[
                 'daily_checkin_last_date',
                 'daily_checkin_streak',
                 'daily_checkin_longest_streak',
                 'total_points',
                 'current_points',
+                'daily_goals'
             ])
             # Create a record in UserDailyCheckin to track all check-in dates
             UserDailyCheckin.objects.get_or_create(student=user, checkin_date=today)
+            
 
         return Response({
             "checked_in": True,
@@ -275,7 +285,7 @@ class EduquestUserViewSet(viewsets.ModelViewSet):
 
         dates = list(UserDailyCheckin.objects.filter(student=user).order_by('checkin_date').values_list('checkin_date', flat=True))
         dates_iso = [d.isoformat() for d in dates]
-        return Response(dates_iso)
+        return Response({"checkin_dates": dates_iso})
     
     @action(detail=False, methods=['post'], url_path='update-daily-goals')
     def update_daily_goals(self, request):
@@ -284,9 +294,6 @@ class EduquestUserViewSet(viewsets.ModelViewSet):
             return Response({"detail": "Invalid user context"}, status=status.HTTP_400_BAD_REQUEST)
 
         daily_goals = request.data.get('daily_goals')
-        if not daily_goals:
-            return Response({"detail": "No daily goals provided"}, status=status.HTTP_400_BAD_REQUEST)
-
         user.daily_goals = daily_goals
         user.save(update_fields=['daily_goals'])
 
@@ -792,8 +799,7 @@ class UserQuestAttemptViewSet(viewsets.ModelViewSet):
 
         user.total_points += bonus_points
         user.current_points += bonus_points
-        user.save(update_fields=['total_points'])
-        user.save(update_fields=['current_points'])
+        user.save(update_fields=['total_points', 'current_points'])
 
         return Response({
             "bonus_awarded": True,
@@ -1741,4 +1747,3 @@ class StudentAttendanceWorkbookExportView(APIView):
         )
         response['Content-Disposition'] = f'attachment; filename="{filename}"'
         return response
-
