@@ -661,7 +661,6 @@ class UserDailyCheckin(models.Model):
 
     class Meta:
         unique_together = ('student', 'checkin_date')
-        ordering = ['-checkin_date']
 
     def __str__(self):
         return f"{self.student.username} checked in on {self.checkin_date}"
