@@ -543,8 +543,9 @@ class UserCosmetics(models.Model):
     profile_background = models.CharField(max_length=255, blank=True, default="")
     profile_border = models.ForeignKey(Cosmetic, on_delete=models.SET_NULL, null=True, blank=True, related_name='usercosmetics_profile_border')
     banner = models.ForeignKey(Cosmetic, on_delete=models.SET_NULL, null=True, blank=True, related_name='usercosmetics_banner')
-    displayed_badges = models.ManyToManyField('Badge', blank=True)
+    displayed_badges = models.ManyToManyField(Badge, blank=True)
     about_me = models.TextField(blank=True, default="")
+    owns = models.ManyToManyField(Cosmetic, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

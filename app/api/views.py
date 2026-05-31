@@ -36,6 +36,7 @@ from .models import (
     Badge,
     UserQuestBadge,
     UserCourseBadge,
+    UserCosmetics,
     Document,
     Cosmetic,
     StudentFeedback,
@@ -59,9 +60,9 @@ from .serializers import (
     UserQuestBadgeSerializer,
     UserCourseBadgeSerializer,
     DocumentSerializer,
+    UserCosmeticsSerializer,
     CosmeticSerializer,
-    StudentFeedbackSerializer,
-    UserDailyCheckinSerializer
+    StudentFeedbackSerializer
 )
 from rest_framework.decorators import api_view
 from django.utils.decorators import method_decorator
@@ -321,6 +322,20 @@ class EduquestUserViewSet(viewsets.ModelViewSet):
             user.save(update_fields=['daily_goals'])
 
         return Response({"detail": "Daily goals updated successfully"}, status=status.HTTP_200_OK)
+    
+    @action(detail=False, methods=['get'])
+    def cosmetic_details(self, request):
+        email = request.query_params.get('email')
+        if not email:
+            return Response({"detail": "email is required"}, status=status.HTTP_400_BAD_REQUEST)
+        
+        user = EduquestUser.objects.get(email=email)
+        if not isinstance(user, EduquestUser):
+            return Response({"detail": "Invalid user context"}, status=status.HTTP_400_BAD_REQUEST)
+        
+        queryset = UserCosmetics.objects.get(user=user)
+        serializer = UserCosmeticsSerializer(queryset)
+        return Response(serializer.data)
 
 class AcademicYearViewSet(viewsets.ModelViewSet):
     queryset = AcademicYear.objects.all().order_by('-id')
@@ -1045,6 +1060,24 @@ class CosmeticViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
+
+    @action(detail=False, methods=['post'])
+    def buy_cosmetic_id(self, request):
+        user = request.user
+        if not isinstance(user, EduquestUser):
+            return Response({"detail": "Invalid user context"}, status=status.HTTP_400_BAD_REQUEST)
+
+        userCosmetic, _ = UserCosmetics.objects.get_or_create(user=user)
+
+        cosmetic_id = request.data.get('id')
+        cosmetic = Cosmetic.objects.get(id=cosmetic_id)
+
+        if not userCosmetic.owns.filter(id=cosmetic.id).exists():
+            userCosmetic.owns.add(cosmetic)
+            user.current_points -= cosmetic.cost
+            userCosmetic.save()
+            user.save(update_fields=['current_points'])
+        return Response({"detail": "User cosmetics updated successfully"}, status=status.HTTP_200_OK)
 
 
 class AnalyticsPartOneView(APIView):

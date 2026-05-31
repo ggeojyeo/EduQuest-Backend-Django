@@ -21,7 +21,6 @@ from .models import (
     Document,
     UserCosmetics,
     StudentFeedback,
-    UserDailyCheckin,
     Cosmetic
 )
 
@@ -610,6 +609,12 @@ class CosmeticSerializer(serializers.ModelSerializer):
         source='cosmetic',
         write_only=True
     )
+    image_id = serializers.PrimaryKeyRelatedField(
+        queryset=Image.objects.all(),
+        source='image',
+        write_only=True
+    )
+    image = ImageSerializer(read_only=True)
     class Meta:
         model = Cosmetic
         fields = '__all__'
@@ -642,7 +647,10 @@ class UserCosmeticsSerializer(serializers.ModelSerializer):
     displayed_badges = serializers.PrimaryKeyRelatedField(
         queryset=Badge.objects.all(),
         many=True,
-        source='displayed_badges'
+    )
+    owns = serializers.PrimaryKeyRelatedField(
+        queryset=Cosmetic.objects.all(),
+        many=True
     )
 
     class Meta:
@@ -656,6 +664,7 @@ class UserCosmeticsSerializer(serializers.ModelSerializer):
             'banner_id',
             'displayed_badges',
             'about_me',
+            'owns',
             'created_at',
             'updated_at',
         ]
@@ -746,18 +755,3 @@ class StudentFeedbackSerializer(serializers.ModelSerializer):
     class Meta:
         model = StudentFeedback
         fields = '__all__'
-
-
-class UserDailyCheckinSerializer(serializers.ModelSerializer):
-    student_id = serializers.PrimaryKeyRelatedField(
-        queryset=EduquestUser.objects.all(),
-        source='student',
-        write_only=True
-    )
-    student = EduquestUserSummarySerializer(read_only=True)
-
-    class Meta:
-        model = UserDailyCheckin
-        fields = ['id', 'student', 'checkin_date']
-        read_only_fields = ['id']
-
