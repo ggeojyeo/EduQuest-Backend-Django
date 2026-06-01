@@ -629,21 +629,24 @@ class UserCosmeticsSerializer(serializers.ModelSerializer):
     profile_picture_id = serializers.PrimaryKeyRelatedField(
         queryset=Cosmetic.objects.all().filter(type=Cosmetic.TypeOfCosmetic.Picture),
         source='profile_picture',
-        write_only=True,
-        allow_null=True
+        allow_null=True,
+        write_only=True
     )
+    profile_picture = CosmeticSerializer(read_only=True)
     profile_border_id = serializers.PrimaryKeyRelatedField(
         queryset=Cosmetic.objects.all().filter(type=Cosmetic.TypeOfCosmetic.Border),
         source='profile_border',
-        write_only=True,
-        allow_null=True
+        allow_null=True,
+        write_only=True
     )
+    profile_border = CosmeticSerializer(read_only=True)
     banner_id = serializers.PrimaryKeyRelatedField(
         queryset=Cosmetic.objects.all().filter(type=Cosmetic.TypeOfCosmetic.Banner),
         source='banner',
-        write_only=True,
-        allow_null=True
+        allow_null=True,
+        write_only=True
     )
+    banner = CosmeticSerializer(read_only=True)
     displayed_badges = BadgeSerializer(
         many=True,
         read_only=True,
@@ -661,9 +664,12 @@ class UserCosmeticsSerializer(serializers.ModelSerializer):
             'id',
             'user_id',
             'profile_picture_id',
+            'profile_picture',
             'profile_background',
             'profile_border_id',
+            'profile_border',
             'banner_id',
+            'banner',
             'displayed_badges',
             'about_me',
             'owns',
