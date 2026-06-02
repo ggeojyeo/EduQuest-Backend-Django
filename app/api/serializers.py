@@ -19,6 +19,7 @@ from .models import (
     UserQuestBadge,
     UserCourseBadge,
     Document,
+    UserCosmeticBadge,
     UserCosmetics,
     StudentFeedback,
     Cosmetic
@@ -619,7 +620,6 @@ class CosmeticSerializer(serializers.ModelSerializer):
         model = Cosmetic
         fields = '__all__'
 
-
 class UserCosmeticsSerializer(serializers.ModelSerializer):
     user_id = serializers.PrimaryKeyRelatedField(
         queryset=EduquestUser.objects.all(),
@@ -647,11 +647,6 @@ class UserCosmeticsSerializer(serializers.ModelSerializer):
         write_only=True
     )
     banner = CosmeticSerializer(read_only=True)
-    displayed_badges = BadgeSerializer(
-        many=True,
-        read_only=True,
-        allow_null=True,
-    )
     owns = CosmeticSerializer(
         many=True,
         read_only=True,
@@ -670,30 +665,11 @@ class UserCosmeticsSerializer(serializers.ModelSerializer):
             'profile_border',
             'banner_id',
             'banner',
-            'displayed_badges',
             'about_me',
             'owns',
             'created_at',
             'updated_at',
         ]
-
-    def update(self, instance, validated_data):
-        displayed_badges = validated_data.pop('displayed_badges', None)
-        owns = validated_data.pop('owns', None)
-
-        for attr, value in validated_data.items():
-            setattr(instance, attr, value)
-
-        instance.save()
-
-        if displayed_badges is not None:
-            instance.displayed_badges.set(displayed_badges)
-
-        if owns is not None:
-            instance.owns.set(owns)
-
-        return instance
-
 
 class UserCourseBadgeSerializer(serializers.ModelSerializer):
     badge_id = serializers.PrimaryKeyRelatedField(

@@ -533,7 +533,7 @@ class Cosmetic(models.Model):
 
     def __str__(self):
         return self.name
-
+    
 class UserCosmetics(models.Model):
     """
     Model to store user's profile cosmetics and display preferences.
@@ -543,7 +543,6 @@ class UserCosmetics(models.Model):
     profile_background = models.CharField(max_length=255, blank=True, default="")
     profile_border = models.ForeignKey(Cosmetic, on_delete=models.SET_NULL, null=True, blank=True, related_name='usercosmetics_profile_border')
     banner = models.ForeignKey(Cosmetic, on_delete=models.SET_NULL, null=True, blank=True, related_name='usercosmetics_banner')
-    displayed_badges = models.ManyToManyField(Badge, blank=True)
     about_me = models.TextField(blank=True, default="")
     owns = models.ManyToManyField(Cosmetic, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -571,6 +570,21 @@ class UserCosmetics(models.Model):
     def __str__(self):
         return f"Cosmetics for {self.user.username}"
 
+class UserCosmeticBadge(models.Model):
+    """
+    Model to store the badges that users have equipped as part of their cosmetics
+    This is a through model for the ManyToMany relationship between UserCosmetics and Badge
+    """
+    user = models.ForeignKey(EduquestUser, on_delete=models.CASCADE)
+    badge = models.ForeignKey(Badge, on_delete=models.CASCADE)
+    display_order = models.PositiveIntegerField()
+
+    class Meta:
+        unique_together = ('user', 'badge')
+        ordering = ['display_order']
+
+    def __str__(self):
+        return f"Ordered list of badges for {self.user.username}"
 
 class StudentCognitiveProfile(models.Model):
     """
