@@ -27,6 +27,7 @@ from .models import (
     Term,
     Course,
     CourseGroup,
+    UserCosmeticBadge,
     UserCourseGroupEnrollment,
     Quest,
     Question,
@@ -335,7 +336,13 @@ class EduquestUserViewSet(viewsets.ModelViewSet):
         
         queryset = UserCosmetics.objects.select_related('profile_picture', 'profile_border', 'banner').get(user=user)
         serializer = UserCosmeticsSerializer(queryset)
-        return Response(serializer.data)
+        badgeQuery = UserCosmeticBadge.objects.filter(user=user).select_related('badge').order_by('display_order')
+        badges = [x.badge for x in badgeQuery]
+        badgeSerializer = BadgeSerializer(badges, many=True)
+        return Response({
+            ** serializer.data,
+            "displayed_badges": badgeSerializer.data
+        })
     
     @action(detail=False, methods=['post'], url_path='update-cosmetic')
     def update_cosmetic(self, request):
@@ -348,20 +355,32 @@ class EduquestUserViewSet(viewsets.ModelViewSet):
         if not cosmetic:
             return Response({"detail": "cosmetic change is required"}, status=status.HTTP_400_BAD_REQUEST)
         
-        profile_picture = None
         if (cosmetic['profile_picture'] and cosmetic['profile_picture'].get('id') is not None):
-            profile_picture = Cosmetic.objects.filter(id=cosmetic['profile_picture']['id']).first()
-        userCosmetic.profile_picture = profile_picture
+            userCosmetic.profile_picture = Cosmetic.objects.filter(id=cosmetic['profile_picture']['id']).first()
 
         userCosmetic.profile_background = cosmetic['profile_background']
-        userCosmetic.profile_border = None
-        userCosmetic.banner = None
+
+        if (cosmetic['profile_border'] and cosmetic['profile_border'].get('id') is not None):
+            userCosmetic.profile_border = Cosmetic.objects.filter(id=cosmetic['profile_border']['id']).first()
+        
+        if (cosmetic['banner'] and cosmetic['banner'].get('id') is not None):
+            userCosmetic.banner = Cosmetic.objects.filter(id=cosmetic['banner']['id']).first()
+
         userCosmetic.about_me = ''
 
-        # IMPORTANT: ManyToMany update
         badges = cosmetic.get('displayed_badges', [])
-        userCosmetic.displayed_badges.set(badges)
+        UserCosmeticBadge.objects.filter(user=user).delete()
+        for i, badge in enumerate(badges):
+            badge_id = badge.get('id')
+            if not badge_id:
+                continue
 
+            UserCosmeticBadge.objects.create(
+                user=user,
+                badge_id=badge_id,
+                display_order=i
+            )
+            
         userCosmetic.save()
         return Response({"detail": "User cosmetics updated successfully"}, status=status.HTTP_200_OK)
 
