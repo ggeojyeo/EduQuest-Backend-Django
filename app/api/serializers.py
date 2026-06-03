@@ -18,8 +18,8 @@ from .models import (
     Badge,
     UserQuestBadge,
     UserCourseBadge,
+    UserOtherBadge,
     Document,
-    UserCosmeticBadge,
     UserCosmetics,
     StudentFeedback,
     Cosmetic
@@ -735,7 +735,38 @@ class UserQuestBadgeSerializer(serializers.ModelSerializer):
         instance.save()
         return instance
 
+class UserOtherBadgeSerializer(serializers.ModelSerializer):
+    badge_id = serializers.PrimaryKeyRelatedField(
+        queryset=Badge.objects.all(),
+        source='badge',
+        write_only=True
+    )
+    user_id = serializers.PrimaryKeyRelatedField(
+        queryset=EduquestUser.objects.all(),
+        source='eduquestuser',
+        write_only=True
+    )
+    badge = BadgeSerializer(read_only=True)
+    user = EduquestUserSerializer(read_only=True)
 
+    class Meta:
+        model = UserOtherBadge
+        fields = '__all__'
+
+    def update(self, instance, validated_data):
+        badge = validated_data.pop('badge', None)
+        if badge:
+            instance.badge = badge
+
+        user = validated_data.pop('eduquestuser', None)
+        if user:
+            instance.user = user
+
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+        return instance
+    
 class StudentFeedbackSerializer(serializers.ModelSerializer):
     user_quest_attempt_id = serializers.PrimaryKeyRelatedField(
         queryset=UserQuestAttempt.objects.all(),

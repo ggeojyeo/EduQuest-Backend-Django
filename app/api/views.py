@@ -37,6 +37,7 @@ from .models import (
     Badge,
     UserQuestBadge,
     UserCourseBadge,
+    UserOtherBadge,
     UserCosmetics,
     Document,
     Cosmetic,
@@ -60,6 +61,7 @@ from .serializers import (
     BadgeSerializer,
     UserQuestBadgeSerializer,
     UserCourseBadgeSerializer,
+    UserOtherBadgeSerializer,
     DocumentSerializer,
     UserCosmeticsSerializer,
     CosmeticSerializer,
@@ -1066,7 +1068,34 @@ class UserCourseBadgeViewSet(viewsets.ModelViewSet):
         queryset = UserCourseBadge.objects.filter(user_course_group_enrollment__student=user_id).order_by('-id')
         serializer = UserCourseBadgeSerializer(queryset, many=True)
         return Response(serializer.data)
+    
+class UserOtherBadgeViewSet(viewsets.ModelViewSet):
+    queryset = UserOtherBadge.objects.all().order_by('-id')
+    serializer_class = UserOtherBadgeSerializer
+    permission_classes = [IsAuthenticated]
 
+    @action(detail=False, methods=['get'])
+    def by_user(self, request):
+        user_id = request.query_params.get('user_id')
+        queryset = UserOtherBadge.objects.filter(user_id=user_id).order_by('-id')
+        serializer = UserOtherBadgeSerializer(queryset, many=True)
+        return Response(serializer.data)
+
+class UserAllBadgeViewSet(viewsets.ModelViewSet):
+    @action(detail=False, methods=['get'])
+    def by_user(self, request):
+        user_id = request.query_params.get('user_id')
+        queryset1 = UserQuestBadge.objects.filter(user_quest_attempt__student=user_id).order_by('-id')
+        queryset2 = UserCourseBadge.objects.filter(user_course_group_enrollment__student=user_id).order_by('-id')
+        queryset3 = UserOtherBadge.objects.filter(user_id=user_id).order_by('-id')
+        serializer1 = UserQuestBadgeSerializer(queryset1, many=True)
+        serializer2 = UserCourseBadgeSerializer(queryset2, many=True)
+        serializer3 = UserOtherBadgeSerializer(queryset3, many=True)
+        return Response(
+            [item["badge"]for item in serializer1.data] +
+            [item["badge"] for item in serializer2.data] +
+            [item["badge"] for item in serializer3.data]
+        )
 
 class DocumentViewSet(viewsets.ModelViewSet):
     queryset = Document.objects.all().order_by('-id')

@@ -480,6 +480,17 @@ class UserQuestBadge(models.Model):
         return (f"{self.user_quest_attempt.student.username} earned {self.badge.name} from Quest "
                 f"{self.user_quest_attempt.quest.name}")
 
+class UserOtherBadge(models.Model):
+    """
+    Model to store the user's earned badges from other activites
+    These badges are awarded based on 'others' related conditions
+    """
+    badge = models.ForeignKey(Badge, on_delete=models.CASCADE, related_name='awarded_to_user_action')
+    user_id = models.ForeignKey(EduquestUser, on_delete=models.CASCADE, related_name='earned_eduquestuser')
+    awarded_date = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.user_id.username} earned {self.badge.name}"
 
 class Document(models.Model):
     """
