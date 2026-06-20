@@ -481,56 +481,100 @@ def generate_personalised_feedback(user_quest_attempt_id):
             'answers': []
         }
 
-        # Collect all answer attempts
-        for answer_attempt in user_quest_attempt.answer_attempts.all():
-            question = answer_attempt.question
-            correct_answer = question.answers.filter(is_correct=True).first()
-            
-            attempt_data['answers'].append({
-                'question_id': question.id,
-                'question_text': question.text,
-                'cognitive_level': getattr(question, 'cognitive_level', 'Understand'),
-                'topic': getattr(question, 'topic', 'General'),
-                'selected_answer': answer_attempt.answer.text,
-                'is_selected': answer_attempt.is_selected,
-                'answer_is_correct': answer_attempt.answer.is_correct,
-                'is_correct': answer_attempt.is_selected and answer_attempt.answer.is_correct,
-                'correct_answer': correct_answer.text if correct_answer else '',
-                'explanation': answer_attempt.answer.reason
-            })
-
         # Call Flask microservice to generate feedback (OUTSIDE the loop)
-        FLASK_URL = getattr(settings, 'FLASK_MICROSERVICE_URL', 'http://localhost:5001')
+        FLASK_URL = getattr(settings, 'FLASK_MICROSERVICE_URL', 'http://localhost:5000')
         logger.info("[Feedback] Calling Flask microservice at %s", FLASK_URL)
+
+        if user_quest_attempt.short_answer_attempts.all():
+            for short_answer_attempt in user_quest_attempt.short_answer_attempts.all():
+                question = short_answer_attempt.question
+                
+                attempt_data['answers'].append({
+                    'question_id': question.id,
+                    'question_text': question.text,
+                    'cognitive_level': getattr(question, 'cognitive_level', 'Understand'),
+                    'topic': getattr(question, 'topic', 'General'),
+                    'answer': short_answer_attempt.text,
+                    'score_achieved': short_answer_attempt.score_achieved,
+                    'explanation': short_answer_attempt.unstructuredanswer.reason
+                })
+        else:
+            # Collect all answer attempts
+            for answer_attempt in user_quest_attempt.answer_attempts.all():
+                question = answer_attempt.question
+                correct_answer = question.answers.filter(is_correct=True).first()
+                
+                attempt_data['answers'].append({
+                    'question_id': question.id,
+                    'question_text': question.text,
+                    'cognitive_level': getattr(question, 'cognitive_level', 'Understand'),
+                    'topic': getattr(question, 'topic', 'General'),
+                    'selected_answer': answer_attempt.answer.text,
+                    'is_selected': answer_attempt.is_selected,
+                    'answer_is_correct': answer_attempt.answer.is_correct,
+                    'is_correct': answer_attempt.is_selected and answer_attempt.answer.is_correct,
+                    'correct_answer': correct_answer.text if correct_answer else '',
+                    'explanation': answer_attempt.answer.reason
+                })
+
         logger.info("[Feedback] Attempt %s payload answers=%s", user_quest_attempt_id, len(attempt_data.get('answers', [])))
         
-        response = requests.post(
-            f"{FLASK_URL}/generate_feedback",
-            json=attempt_data,
-            timeout=30
-        )
-        logger.info("[Feedback] Flask response status=%s", response.status_code)
-
-        if response.status_code == 200:
-            feedback_data = response.json()
-
-            StudentFeedback.objects.update_or_create(
-                user_quest_attempt=user_quest_attempt,
-                defaults={
-                    'quest_summary': feedback_data.get('quest_summary', {}),
-                    'subtopic_feedback': feedback_data.get('subtopic_feedback', []),
-                    'study_tips': feedback_data.get('study_tips', []),
-                    'strengths': feedback_data.get('strengths', []),
-                    'weaknesses': feedback_data.get('weaknesses', []),
-                    'recommendations': feedback_data.get('recommendations', ''),
-                    'question_feedback': feedback_data.get('question_feedback', {})
-                }
+        if question.question_type == "short_ans" and question.question_type == "latex_short_ans":
+            response = requests.post(
+                f"{FLASK_URL}/generate_shortans_feedback",
+                json=attempt_data,
+                timeout=30
             )
-            
-            print(f"[Feedback Generated] for {user_quest_attempt.student.username}")
+            logger.info("[Feedback] Flask response status=%s", response.status_code)
+
+            if response.status_code == 200:
+                feedback_data = response.json()
+
+                StudentFeedback.objects.update_or_create(
+                    user_quest_attempt=user_quest_attempt,
+                    defaults={
+                        'quest_summary': feedback_data.get('quest_summary', {}),
+                        'subtopic_feedback': feedback_data.get('subtopic_feedback', []),
+                        'study_tips': feedback_data.get('study_tips', []),
+                        'strengths': feedback_data.get('strengths', []),
+                        'weaknesses': feedback_data.get('weaknesses', []),
+                        'recommendations': feedback_data.get('recommendations', ''),
+                        'question_feedback': feedback_data.get('question_feedback', {})
+                    }
+                )
+                
+                print(f"[Feedback Generated] for {user_quest_attempt.student.username}")
+            else:
+                logger.error("[Feedback] Flask error status=%s body=%s", response.status_code, response.text[:500])
+                print(f"[Feedback Error] Status: {response.status_code}")
         else:
-            logger.error("[Feedback] Flask error status=%s body=%s", response.status_code, response.text[:500])
-            print(f"[Feedback Error] Status: {response.status_code}")
+            response = requests.post(
+                f"{FLASK_URL}/generate_feedback",
+                json=attempt_data,
+                timeout=30
+            )
+            logger.info("[Feedback] Flask response status=%s", response.status_code)
+
+            if response.status_code == 200:
+                feedback_data = response.json()
+
+                StudentFeedback.objects.update_or_create(
+                    user_quest_attempt=user_quest_attempt,
+                    defaults={
+                        'quest_summary': feedback_data.get('quest_summary', {}),
+                        'subtopic_feedback': feedback_data.get('subtopic_feedback', []),
+                        'study_tips': feedback_data.get('study_tips', []),
+                        'strengths': feedback_data.get('strengths', []),
+                        'weaknesses': feedback_data.get('weaknesses', []),
+                        'recommendations': feedback_data.get('recommendations', ''),
+                        'question_feedback': feedback_data.get('question_feedback', {})
+                    }
+                )
+                
+                print(f"[Feedback Generated] for {user_quest_attempt.student.username}")
+            else:
+                logger.error("[Feedback] Flask error status=%s body=%s", response.status_code, response.text[:500])
+                print(f"[Feedback Error] Status: {response.status_code}")
 
     except requests.RequestException as e:
         logger.exception("[Feedback] Request failed: %s", str(e))

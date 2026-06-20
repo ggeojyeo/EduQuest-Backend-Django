@@ -13,8 +13,10 @@ from .models import (
     Quest,
     Question,
     Answer,
+    UnstructuredAnswer,
     UserQuestAttempt,
     UserAnswerAttempt,
+    UserShortAnswerAttempt,
     TestScore,
     UserTestScore,
     Badge,
@@ -377,22 +379,33 @@ class AnswerSerializer(serializers.ModelSerializer):
         model = Answer
         fields = ['id', 'text', 'is_correct', 'reason']
 
+class UnstructuredAnswerSerializer(serializers.ModelSerializer):
+    id = serializers.IntegerField(required=False)  # Make 'id' writeable
+    class Meta:
+        model = UnstructuredAnswer
+        fields = ['id', 'text', 'reason']
 
 class QuestionSerializer(serializers.ModelSerializer):
     quest_id = serializers.PrimaryKeyRelatedField(
         queryset=Quest.objects.all(),
         source='quest',
     )
-    answers = AnswerSerializer(many=True)
+    answers = AnswerSerializer(many=True, required=False)
+    unstructuredanswer = UnstructuredAnswerSerializer(required=False, allow_null=True)
 
     class Meta:
         model = Question
-        fields = ['id', 'quest_id', 'text', 'number', 'max_score', 'hint', 'question_type', 'structured_data', 'answers']
+        fields = ['id', 'quest_id', 'text', 'number', 'max_score', 'hint', 'question_type', 'structured_data', 'answers', 'unstructuredanswer']
 
     def validate(self, data):
-        answers = data.get('answers', [])
-        if not answers:
-            raise serializers.ValidationError("Answers cannot be empty.")
+        if data.get('question_type') == 'short_ans' or data.get('question_type') == 'latex_short_ans':
+            unstructuredanswer = data.get('unstructuredanswer')
+            if not unstructuredanswer:
+                raise serializers.ValidationError("Unstructured answer cannot be empty.")
+        else:
+            answers = data.get('answers', [])
+            if not answers:
+                raise serializers.ValidationError("Answers cannot be empty.")
         return data
 
     def create(self, validated_data):
@@ -401,20 +414,31 @@ class QuestionSerializer(serializers.ModelSerializer):
             questions = []
             for item in validated_data:
                 answers_data = item.pop('answers')
+                unstructured_answer_data = item.pop('unstructuredanswer')
                 question = Question.objects.create(**item)
-                self._create_answers(question, answers_data)
+                if item.get('question_type') == 'short_ans' or item.get('question_type') == 'latex_short_ans':
+                    self._create_unstructured_answer(question, unstructured_answer_data)
+                else:
+                    self._create_answers(question, answers_data)
                 questions.append(question)
             return questions
         else:
-            # Single object creation
             answers_data = validated_data.pop('answers')
+            unstructured_answer_data = validated_data.pop('unstructuredanswer')
             question = Question.objects.create(**validated_data)
-            self._create_answers(question, answers_data)
+            # Single object creation
+            if validated_data.get('question_type') == 'short_ans' or validated_data.get('question_type') == 'latex_short_ans':
+                self._create_unstructured_answer(question, unstructured_answer_data)
+            else:
+                self._create_answers(question, answers_data)
             return question
 
     def _create_answers(self, question, answers_data):
         for answer_data in answers_data:
             Answer.objects.create(question=question, **answer_data)
+    
+    def _create_unstructured_answer(self, question, answer_data):
+        UnstructuredAnswer.objects.create(question=question, text=answer_data.get('text'), reason=answer_data.get('reason'))
 
 
 
@@ -473,19 +497,32 @@ class UserQuestAttemptSerializer(serializers.ModelSerializer):
 
         # Create UserAnswerAttempt for each question in the quest
         questions = Question.objects.filter(quest=user_quest_attempt.quest)
-        user_answer_attempts = []
+        short_attempts = []
+        mcq_attempts = []
 
         for question in questions:
-              answers = Answer.objects.filter(question=question)
-              for answer in answers:
-                  user_answer_attempts.append(UserAnswerAttempt(
-                      user_quest_attempt=user_quest_attempt,
-                      question=question,
-                      answer=answer,
-                      is_selected=False,
-                  ))
-        # Bulk create all UserAnswerAttempt instances
-        UserAnswerAttempt.objects.bulk_create(user_answer_attempts)
+            if question.question_type == 'short_ans' or question.question_type == 'latex_short_ans':
+                unstructuredanswer = UnstructuredAnswer.objects.get(question=question)
+                short_attempts.append(UserShortAnswerAttempt(
+                    user_quest_attempt=user_quest_attempt,
+                    question=question,
+                    unstructuredanswer=unstructuredanswer,
+                ))
+            else:
+                answers = Answer.objects.filter(question=question)
+                for answer in answers:
+                    mcq_attempts.append(UserAnswerAttempt(
+                        user_quest_attempt=user_quest_attempt,
+                        question=question,
+                        answer=answer,
+                        is_selected=False,
+                    ))
+        
+        if short_attempts:
+            UserShortAnswerAttempt.objects.bulk_create(short_attempts)
+        if mcq_attempts:
+            # Bulk create all UserAnswerAttempt instances
+            UserAnswerAttempt.objects.bulk_create(mcq_attempts)
 
         return user_quest_attempt
 
@@ -563,6 +600,50 @@ class UserAnswerAttemptSerializer(serializers.ModelSerializer):
         instance.save()
         return instance
 
+class UserShortAnswerAttemptSerializer(serializers.ModelSerializer):
+    user_quest_attempt_id = serializers.PrimaryKeyRelatedField(
+        queryset=UserQuestAttempt.objects.all(),
+        source='user_quest_attempt',
+        # write_only=True
+    )
+    question_id = serializers.PrimaryKeyRelatedField(
+        queryset=Question.objects.all(),
+        source='question',
+        write_only=True
+    )
+    unstructuredanswer_id = serializers.PrimaryKeyRelatedField(
+        queryset=UnstructuredAnswer.objects.all(),
+        source='unstructuredanswer',
+        write_only=True
+    )
+    question = QuestionSerializer(read_only=True)
+    unstructuredanswer = UnstructuredAnswerSerializer()
+
+    class Meta:
+        model = UserShortAnswerAttempt
+        fields = [
+            'id',
+            'user_quest_attempt_id',
+            'question_id',
+            'question',
+            'unstructuredanswer_id',
+            'unstructuredanswer',
+            'text',
+            'hint_used',
+            'score_achieved'
+        ]
+        # read_only_fields = ['score_achieved']  # Score is calculated and shouldn't be set directly
+
+    def create(self, validated_data):
+        return UserShortAnswerAttempt.objects.create(**validated_data)
+
+    def update(self, instance, validated_data):
+        # Since foreign keys shouldn't change, we don't need to update them
+        instance.text = validated_data.get('text', instance.text)
+        instance.hint_used = validated_data.get('hint_used', instance.hint_used)
+        instance.score_achieved = validated_data.get('score_achieved', instance.score_achieved)
+        instance.save()
+        return instance
 
 class BulkUpdateUserAnswerAttemptSerializer(serializers.Serializer):
     """
