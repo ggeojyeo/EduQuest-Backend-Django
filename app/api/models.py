@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime
 import os
+import requests
 
 from celery import chain
 from django.db import models
@@ -12,6 +13,7 @@ from .utils import split_full_name
 from django.db.models import Sum
 from storages.backends.azure_storage import AzureStorage
 from django.core.exceptions import ValidationError
+from django.conf import settings
 
 class EduquestUser(AbstractUser):
     """
@@ -282,7 +284,7 @@ class Question(models.Model):
     max_score = models.FloatField(default=1)
     hint = models.TextField(null=True, blank=True)
 
-    question_type = models.CharField(max_length=50, default="mcq")  # mcq, matching, categorising, latex_mcq
+    question_type = models.CharField(max_length=50, default="mcq")  # mcq, matching, categorising, latex_mcq, short_ans, latex_short_ans
     structured_data = models.JSONField(default=dict, blank=True)  # Extra data for non-mcq types
 
     cognitive_level = models.CharField(max_length=100, null=True, blank=True)  # Bloom's Taxonomy: Remember, Understand, Apply, Analyze, Evaluate, Create
@@ -305,7 +307,17 @@ class Answer(models.Model):
 
     def __str__(self):
         return f"{self.text} for Question ID {self.question.id}"
+    
+class UnstructuredAnswer(models.Model):
+    """
+    Model to store unstructured answer for each question
+    """
+    question = models.OneToOneField(Question, on_delete=models.CASCADE, related_name='unstructuredanswer')
+    text = models.TextField(blank=True, null=True)
+    reason = models.TextField(blank=True, null=True)  # Explanation for the correct answer, only for generated quest
 
+    def __str__(self):
+        return f"Unstructured Question ID {self.question.id}"
 
 class UserQuestAttempt(models.Model):
     """
@@ -333,42 +345,82 @@ class UserQuestAttempt(models.Model):
         user_answer_attempts_to_update = []
         questions = self.quest.questions.all()
 
-        for question in questions:
-            answers = question.answers.all()
-            num_options = answers.count()
-            num_correct = answers.filter(is_correct=True).count()
 
-            if num_options == 0:
-                continue  # Avoid division by zero
+        print("IN")
+        if questions and (questions[0].question_type == "short_ans" or questions[0].question_type == "latex_short_ans"):
+            for question in questions:
+                user_answer = self.short_answer_attempts.get(question=question)
+                
+                print("IN2")
+                FLASK_URL = getattr(settings, 'FLASK_MICROSERVICE_URL', 'http://app:5000')
+                print(f"user answer question {user_answer.question.text}\nuser answer reason {user_answer.unstructuredanswer.reason}\nuser answer text {user_answer.text}")
+                response = requests.post(
+                    f"{FLASK_URL}/generate_short_ans_score",
+                    json={
+                        'question': user_answer.question.text,
+                        'expected_answer': user_answer.unstructuredanswer.reason,
+                        'student_answer': user_answer.text
+                    },
+                    timeout=30
+                )
 
-            weight_per_option = question.max_score / (num_correct or 1)
-            user_answers = self.answer_attempts.filter(question=question)
-            question_score = 0
-
-            for ua in user_answers:
-                # Use the is_correct field from UserAnswerAttempt (tracks if THIS student got it right)
-                # Only award points if the student selected this answer AND it was correct for them
-                if ua.is_selected and ua.answer.is_correct:
-                    ua.score_achieved = weight_per_option
-                    question_score += weight_per_option
+                if response.status_code == 200:
+                    question_score = response.json().get('score', '')
+                    print(f"[Short Answer Score Generated] for {user_answer.student.username}")
                 else:
-                    ua.score_achieved = 0
-                user_answer_attempts_to_update.append(ua)
+                    print(f"[Short Answer Score Error] Status: {response.status_code}")
 
-            hint_used = user_answers.filter(hint_used=True).exists()
-            if hint_used:
-                remaining_penalty = 5
+                print("I AM HERE")
+
+                user_answer.score_achieved = question_score
+                user_answer_attempts_to_update.append(user_answer)
+
+                if user_answer.hint_used:
+                    penalty = 5
+                    user_answer.score_achieved -= penalty
+                    question_score = max(0, question_score - penalty)
+
+                total_score += question_score
+
+            # Bulk update all UserAnswerAttempt instances' score_achieved fields
+            UserShortAnswerAttempt.objects.bulk_update(user_answer_attempts_to_update, ['score_achieved'])
+        else:
+            for question in questions:
+                answers = question.answers.all()
+                num_options = answers.count()
+                num_correct = answers.filter(is_correct=True).count()
+
+                if num_options == 0:
+                    continue  # Avoid division by zero
+
+                weight_per_option = question.max_score / (num_correct or 1)
+                user_answers = self.answer_attempts.filter(question=question)
+                question_score = 0
+
                 for ua in user_answers:
-                    if ua.score_achieved > 0 and remaining_penalty > 0:
-                        deduction = min(ua.score_achieved, remaining_penalty)
-                        ua.score_achieved -= deduction
-                        remaining_penalty -= deduction
-                question_score = max(0, question_score - 5)
+                    # Use the is_correct field from UserAnswerAttempt (tracks if THIS student got it right)
+                    # Only award points if the student selected this answer AND it was correct for them
+                    if ua.is_selected and ua.answer.is_correct:
+                        ua.score_achieved = weight_per_option
+                        question_score += weight_per_option
+                    else:
+                        ua.score_achieved = 0
+                    user_answer_attempts_to_update.append(ua)
 
-            total_score += question_score
+                hint_used = user_answers.filter(hint_used=True).exists()
+                if hint_used:
+                    remaining_penalty = 5
+                    for ua in user_answers:
+                        if ua.score_achieved > 0 and remaining_penalty > 0:
+                            deduction = min(ua.score_achieved, remaining_penalty)
+                            ua.score_achieved -= deduction
+                            remaining_penalty -= deduction
+                    question_score = max(0, question_score - 5)
 
-        # Bulk update all UserAnswerAttempt instances' score_achieved fields
-        UserAnswerAttempt.objects.bulk_update(user_answer_attempts_to_update, ['score_achieved'])
+                total_score += question_score
+
+            # Bulk update all UserAnswerAttempt instances' score_achieved fields
+            UserAnswerAttempt.objects.bulk_update(user_answer_attempts_to_update, ['score_achieved'])
 
         return total_score
 
@@ -427,6 +479,20 @@ class UserAnswerAttempt(models.Model):
     def __str__(self):
         return f"{self.user_quest_attempt.student.username} selected {self.answer.text} for question {self.question.number}"
 
+class UserShortAnswerAttempt(models.Model):
+    """
+    Model to store the user's answer for each question attempt
+    """
+    user_quest_attempt = models.ForeignKey(UserQuestAttempt, on_delete=models.CASCADE, related_name='short_answer_attempts')
+    question = models.ForeignKey(Question, on_delete=models.CASCADE, related_name='user_short_answer_attempts')
+    unstructuredanswer = models.ForeignKey(UnstructuredAnswer, on_delete=models.CASCADE)
+    text = models.TextField(blank=True, null=True)
+    hint_used = models.BooleanField(default=False)
+    score_achieved = models.FloatField(default=0)
+
+    def __str__(self):
+        return f"{self.user_quest_attempt.student.username} selected {self.unstructuredanswer.text} for question {self.question.number}"
+    
 class TestScore(models.Model):
     """
     Model to store test scores for each course group
