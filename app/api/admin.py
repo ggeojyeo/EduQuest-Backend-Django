@@ -10,8 +10,10 @@ from .models import (
     Quest,
     Question,
     Answer,
+    UnstructuredAnswer,
     UserQuestAttempt,
     UserAnswerAttempt,
+    UserShortAnswerAttempt,
     TestScore,
     UserTestScore,
     Badge,
@@ -32,7 +34,9 @@ admin.site.register(UserCourseGroupEnrollment)
 admin.site.register(Quest)
 admin.site.register(Question)
 admin.site.register(Answer)
+admin.site.register(UnstructuredAnswer)
 admin.site.register(UserAnswerAttempt)
+admin.site.register(UserShortAnswerAttempt)
 admin.site.register(UserQuestAttempt)
 admin.site.register(TestScore)
 admin.site.register(UserTestScore)

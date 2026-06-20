@@ -34,6 +34,7 @@ from .models import (
     Answer,
     UserQuestAttempt,
     UserAnswerAttempt,
+    UserShortAnswerAttempt,
     TestScore,
     UserTestScore,
     Badge,
@@ -60,6 +61,7 @@ from .serializers import (
     AnswerSerializer,
     UserQuestAttemptSerializer,
     UserAnswerAttemptSerializer,
+    UserShortAnswerAttemptSerializer,
     TestScoreSerializer,
     UserTestScoreSerializer,
     BadgeSerializer,
@@ -79,6 +81,18 @@ from openpyxl import Workbook
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+def post_request_with_fallback(url, payload, timeout=30):
+    try:
+        return requests.post(url, json=payload, timeout=timeout)
+    except ConnectionError:
+        if 'localhost' in url:
+            alt_url = url.replace('localhost', 'host.docker.internal')
+            logger.info('[Flask] Connection failed to %s; retrying with %s', url, alt_url)
+            return requests.post(alt_url, json=payload, timeout=timeout)
+        raise
+
 User = get_user_model()
 
 DEMO_USERS = {
@@ -734,9 +748,9 @@ class QuestViewSet(viewsets.ModelViewSet):
         flask_url = getattr(settings, 'FLASK_MICROSERVICE_URL', 'http://localhost:5000')
 
         logger.info("[Bonus Game] Calling Flask microservice at %s for document=%s", flask_url, document_name)
-        response = requests.post(
+        response = post_request_with_fallback(
             f"{flask_url}/generate_bonus_game",
-            json={"document_id": document_name},
+            {"document_id": document_name},
             timeout=30
         )
         logger.info("[Bonus Game] Flask response status=%s", response.status_code)
@@ -764,6 +778,16 @@ class QuestionViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save()
+
+    @action(detail=False, methods=['post'])
+    def short_ans(self, request, *args, **kwargs):
+        if isinstance(request.data, list):
+            serializer = self.get_serializer(data=request.data, many=True)
+            serializer.is_valid(raise_exception=True)
+            self.perform_create(serializer)
+            # Serialize the created data
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return super().create(request, *args, **kwargs)
 
     @action(detail=False, methods=['get'])
     def by_quest(self, request):
@@ -1172,7 +1196,56 @@ class UserAnswerAttemptViewSet(viewsets.ModelViewSet):
 
         return Response({"error": "Expected a list of data."}, status=status.HTTP_400_BAD_REQUEST)
 
+class UserShortAnswerAttemptViewSet(viewsets.ModelViewSet):
+    queryset = UserShortAnswerAttempt.objects.all().order_by('-id')
+    serializer_class = UserShortAnswerAttemptSerializer
+    permission_classes = [IsAuthenticated]
 
+    @action(detail=False, methods=['get'])
+    def by_user_quest_attempt(self, request):
+        user_quest_attempt_id = request.query_params.get('user_quest_attempt_id')
+        queryset = UserShortAnswerAttempt.objects.filter(user_quest_attempt=user_quest_attempt_id).order_by('-id')
+        serializer = UserShortAnswerAttemptSerializer(queryset, many=True)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=['get'])
+    def by_quest(self, request):
+        quest_id = request.query_params.get('quest_id')
+        queryset = UserShortAnswerAttempt.objects.filter(user_quest_attempt__quest=quest_id).order_by('-id')
+        serializer = UserShortAnswerAttemptSerializer(queryset, many=True)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=['patch'], url_path='bulk-update')
+    def bulk_update(self, request, *args, **kwargs):
+        """
+        Bulk update UserShortAnswerAttempt
+        """
+        if isinstance(request.data, list):
+            updated_attempts = []
+            for attempt_data in request.data:
+                attempt_id = attempt_data.get('id')
+                if not attempt_id:
+                    return Response({"error": "ID is required for each attempt."}, status=status.HTTP_400_BAD_REQUEST)
+
+                try:
+                    # Retrieve the instance to update
+                    attempt_instance = UserShortAnswerAttempt.objects.get(id=attempt_id)
+                except UserShortAnswerAttempt.DoesNotExist:
+                    return Response({"error": f"UserAnswerAttempt with id {attempt_id} not found."},
+                                    status=status.HTTP_404_NOT_FOUND)
+
+                # Use the existing serializer for each update
+                serializer = self.get_serializer(instance=attempt_instance, data=attempt_data, partial=True)
+                if serializer.is_valid():
+                    serializer.save()
+                    updated_attempts.append(serializer.data)
+                else:
+                    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+            return Response({"updated_attempts": updated_attempts}, status=status.HTTP_200_OK)
+
+        return Response({"error": "Expected a list of data."}, status=status.HTTP_400_BAD_REQUEST)
+    
 class BadgeViewSet(viewsets.ModelViewSet):
     queryset = Badge.objects.all().order_by('-id')
     serializer_class = BadgeSerializer
