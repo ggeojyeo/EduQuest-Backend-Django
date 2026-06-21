@@ -2,6 +2,7 @@ import uuid
 from datetime import datetime
 import os
 import requests
+import math
 
 from celery import chain
 from django.db import models
@@ -106,6 +107,11 @@ class EduquestUser(AbstractUser):
         if old_instance.daily_checkin_streak == 83 and self.daily_checkin_streak == 84 and self.daily_checkin_longest_streak == 84:
             from .tasks import award_semester_badge
             award_semester_badge.delay(self.id)
+
+        if self.total_points > 100 and math.floor(old_instance.total_points) != math.floor(self.total_points):
+            from .tasks import award_level_border
+            award_level_border.delay(self.id)
+
 
 
 class Image(models.Model):
@@ -640,6 +646,7 @@ class Cosmetic(models.Model):
     type = models.CharField(max_length=50, choices=TypeOfCosmetic.choices)
     image = models.ForeignKey(Image, on_delete=models.SET_NULL, null=True, blank=True)
     cost = models.FloatField(default=0)
+    purchaseable = models.BooleanField(default=True)
 
     def get_type(self) -> TypeOfCosmetic:
         return self.TypeOfCosmetic(self.type)

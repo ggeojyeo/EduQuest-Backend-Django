@@ -401,7 +401,6 @@ def award_tutorial_attendance_badges_for_course(course_id):
 #     except Exception as e:
 #         return f"[Completionist] Error: {e}"
 
-# Incomplete
 @shared_task
 def award_top_ranker_badge(course_id):
     """
@@ -479,7 +478,6 @@ def award_top_ranker_badge(course_id):
         logger.exception("[Top Ranker] Unexpected error: %s", str(e))
         return f"[Top Ranker] Error: {str(e)}"
 
-# Incomplete
 @shared_task
 def award_consecutive_30days_badge(user_id):
     """
@@ -509,7 +507,6 @@ def award_consecutive_30days_badge(user_id):
     except Badge.DoesNotExist:
         return f"[Consecutive 30 days] Badge 'Consecutive 30 days' does not exist."
 
-# Incomplete
 @shared_task
 def award_semester_badge(user_id):
     """
@@ -538,7 +535,6 @@ def award_semester_badge(user_id):
     except Badge.DoesNotExist:
         return f"[Semester] Badge 'Semester' does not exist."
     
-# Incomplete
 @shared_task
 def award_hoarder_badge(user_id):
     """
@@ -834,3 +830,26 @@ def update_cognitive_profile(student_id):
 
     except Exception as e:
         print(f"[Error Updating Cognitive Profile]: {str(e)}")
+
+@shared_task
+def award_level_border(user_id):
+    """
+    Award the borders based on the user's level.
+    Triggered after a user earns points.
+    """
+    from .models import UserCosmetics, Cosmetic
+    try:
+        userCosmetics = UserCosmetics.objects.get(user_id=user_id)
+
+        userLevel = math.floor(userCosmetics.user.total_points / 100)
+        if userLevel <= 0:
+            return
+        
+        frame = Cosmetic.objects.get(name=f"Level {userLevel} Frame")
+        userCosmetics.owns.add(frame)
+        logger.info(f"[Level Border] {userCosmetics.user.username} is at {userLevel} level")
+
+        return f"[Level Border] Cosmetic frame awarded to user: {userCosmetics.user.username}"
+
+    except Cosmetic.DoesNotExist:
+        return f"[Level Border] Cosmetic frame does not exist."
