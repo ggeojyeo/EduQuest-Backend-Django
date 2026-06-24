@@ -661,6 +661,7 @@ class QuestViewSet(viewsets.ModelViewSet):
                     # Process each question in the questions_data list
                     for question_data in questions_data:
                         question_data['quest_id'] = new_quest_id
+                        question_data['unstructuredanswer'] = None
                         question_serializer = QuestionSerializer(data=question_data)
                         question_serializer.is_valid(raise_exception=True)
                         question = question_serializer.save()
