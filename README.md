@@ -94,6 +94,7 @@ API documentation: [Documentation](https://eduquest-admin.azurewebsites.net/docs
     AZURE_STORAGE_ACCOUNT_CONNECTION_STRING=your_azure_storage_account_connection_string
     AZURE_CONTAINER=your_azure_storage_container
     DEBUG=1_for_dev_0_for_prod
+    FLASK_MICROSERVICE_URL=your_microservice_url
     ```
 
 5. **Change Directory to the project root:**
