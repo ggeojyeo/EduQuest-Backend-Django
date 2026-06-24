@@ -697,7 +697,8 @@ class QuestViewSet(viewsets.ModelViewSet):
                         # Create a UserQuestAttempt object
                         user_quest_attempt_data = {
                             'student_id': user.id,
-                            'quest_id': new_quest_id
+                            'quest_id': new_quest_id,
+                            'submitted': False
                         }
                         user_quest_attempt_serializer = UserQuestAttemptSerializer(data=user_quest_attempt_data)
                         user_quest_attempt_serializer.is_valid(raise_exception=True)
@@ -722,7 +723,13 @@ class QuestViewSet(viewsets.ModelViewSet):
                                         user_answer_attempt.save()
                     except Exception as e:
                         raise ValidationError({"Error updating selected answers": str(e)})
-
+                    
+                    try:
+                        user_quest_attempt.submitted = True
+                        user_quest_attempt.save()
+                    except Exception as e:
+                        raise ValidationError({"Error changing the quest to submitted": str(e)})
+                    
             except ValidationError as ve:
                 return Response(
                     {"Validation Error": ve.detail},
