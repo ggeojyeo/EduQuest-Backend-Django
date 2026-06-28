@@ -845,9 +845,13 @@ def award_level_border(user_id):
         if userLevel <= 0:
             return
         
-        frame = Cosmetic.objects.get(name=f"Level {userLevel} Frame")
-        userCosmetics.owns.add(frame)
-        logger.info(f"[Level Border] {userCosmetics.user.username} is at {userLevel} level")
+        try:
+            frame = Cosmetic.objects.get(name=f"Level {userLevel} Frame")
+            userCosmetics.owns.add(frame)
+            logger.info(f"[Level Border] {userCosmetics.user.username} is at {userLevel} level")
+        except:
+            # When user level exceeds border available/if some level does not include border
+            logger.info(f"[Level Border] {userCosmetics.user.username} is at {userLevel} level and there are no borders")
 
         return f"[Level Border] Cosmetic frame awarded to user: {userCosmetics.user.username}"
 
